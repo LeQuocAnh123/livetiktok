@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, type BotSettings } from "@/lib/api";
@@ -9,11 +10,36 @@ import { api, type BotSettings } from "@/lib/api";
 export function SettingsForm() {
   const [settings, setSettings] = useState<BotSettings | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(false);
+
+  function loadSettings() {
+    setError(false);
+    setSettings(null);
+    api.settings
+      .get()
+      .then((s) => {
+        setSettings(s);
+        setError(false);
+      })
+      .catch(() => {
+        setError(true);
+        toast.error("Failed to load settings");
+      });
+  }
 
   useEffect(() => {
-    api.settings.get().then(setSettings).catch(() => toast.error("Failed to load settings"));
+    loadSettings();
   }, []);
 
+  if (error)
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-destructive">Failed to load settings.</p>
+        <Button variant="outline" size="sm" onClick={loadSettings}>
+          Retry
+        </Button>
+      </div>
+    );
   if (!settings) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   function update<K extends keyof BotSettings>(key: K, value: BotSettings[K]) {
@@ -103,12 +129,10 @@ export function SettingsForm() {
       </div>
 
       <div className="flex items-center gap-3">
-        <input
+        <Checkbox
           id="auto-reply"
-          type="checkbox"
-          className="h-4 w-4 accent-primary"
           checked={settings.auto_reply_enabled}
-          onChange={(e) => update("auto_reply_enabled", e.target.checked)}
+          onCheckedChange={(checked) => update("auto_reply_enabled", checked === true)}
         />
         <Label htmlFor="auto-reply">Auto Reply</Label>
       </div>
