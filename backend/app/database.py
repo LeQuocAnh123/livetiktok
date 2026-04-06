@@ -26,7 +26,7 @@ def _get_session_factory():
     return _session_factory
 
 
-def get_session_factory():
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
     """Public accessor for background tasks that need their own DB session."""
     return _get_session_factory()
 
