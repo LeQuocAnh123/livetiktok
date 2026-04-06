@@ -114,7 +114,7 @@ export function CsvUpload({ onDone }: Props) {
 
               {/* Preview rows */}
               <div>
-                <p className="text-xs text-muted-foreground mb-2">Preview 5 dòng đầu:</p>
+                <p className="text-xs text-muted-foreground mb-2">Tất cả {preview.total_rows} dòng:</p>
                 <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                   {preview.preview.map((row) => (
                     <div

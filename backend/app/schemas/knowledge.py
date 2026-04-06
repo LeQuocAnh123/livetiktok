@@ -70,5 +70,5 @@ class PreviewRow(BaseModel):
 class CsvPreviewResponse(BaseModel):
     total_rows: int
     valid_rows: int
-    preview: list[PreviewRow]  # first 5 rows
+    preview: list[PreviewRow]  # all rows
     warnings: list[str]  # file-level warnings

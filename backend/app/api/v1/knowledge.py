@@ -162,7 +162,7 @@ def _validate_rows(rows: list[dict]) -> tuple[list[PreviewRow], list[str]]:
     """Return (preview_rows, file_level_warnings)."""
     valid_categories = {c.value for c in KnowledgeCategory}
     preview_rows: list[PreviewRow] = []
-    for i, row in enumerate(rows[:5], start=1):
+    for i, row in enumerate(rows, start=1):
         content = row.get("content", "").strip()
         raw_cat = row.get("category", "faq").strip().lower()
         warning = None
@@ -173,7 +173,7 @@ def _validate_rows(rows: list[dict]) -> tuple[list[PreviewRow], list[str]]:
         elif raw_cat not in valid_categories:
             warning = f"Category '{raw_cat}' không hợp lệ → sẽ dùng 'faq'"
         preview_rows.append(PreviewRow(
-            row=i, content=content[:80], category=raw_cat, is_valid=is_valid, warning=warning
+            row=i, content=content, category=raw_cat, is_valid=is_valid, warning=warning
         ))
 
     warnings: list[str] = []
