@@ -1,0 +1,5 @@
+# Ignore all backup files but keep the folder
+*.db
+*.db-shm
+*.db-wal
+!.gitkeep

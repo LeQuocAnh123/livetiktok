@@ -83,6 +83,3 @@ app.include_router(ws_router)
 
 from app.api.v1.analytics import router as analytics_router  # noqa: E402
 app.include_router(analytics_router)
-
-from app.api.v1.backup import router as backup_router  # noqa: E402
-app.include_router(backup_router)
