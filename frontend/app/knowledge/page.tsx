@@ -71,13 +71,19 @@ export default function KnowledgePage() {
           <h2 className="text-2xl font-bold">Knowledge Base</h2>
           <p className="text-sm text-muted-foreground">{total} chunks total</p>
         </div>
-        <div className="flex gap-2">
-          <CsvUpload onDone={load} />
-          <Button onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Chunk
-          </Button>
-        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <button
+          onClick={openCreate}
+          className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-8 text-primary hover:bg-primary/10 hover:border-primary transition-colors cursor-pointer"
+        >
+          <Plus className="h-8 w-8" />
+          <span className="text-base font-semibold">Thêm chunk mới</span>
+          <span className="text-xs text-muted-foreground">Nhập nội dung thủ công</span>
+        </button>
+
+        <CsvUpload onDone={load} />
       </div>
 
       <ChunkTable chunks={chunks} onEdit={openEdit} onDelete={handleDelete} />
