@@ -1,3 +1,5 @@
+import asyncio
+import inspect
 import logging
 from enum import Enum
 from typing import Callable
@@ -14,7 +16,6 @@ DisconnectHandler = Callable[[], None]
 
 class ListenerEvent(str, Enum):
     COMMENT = "comment"
-    CONNECT = "connect"
     DISCONNECT = "disconnect"
 
 
@@ -51,7 +52,9 @@ class LiveListener:
         logger.debug("Comment from %s: %s", user, text[:80])
         for handler in self._comment_handlers:
             try:
-                handler(user, text)
+                result = handler(user, text)
+                if inspect.isawaitable(result):
+                    await result
             except Exception:
                 logger.exception("Comment handler error")
 
@@ -59,7 +62,9 @@ class LiveListener:
         logger.info("Disconnect event received")
         for handler in self._disconnect_handlers:
             try:
-                handler()
+                result = handler()
+                if inspect.isawaitable(result):
+                    await result
             except Exception:
                 logger.exception("Disconnect handler error")
 
