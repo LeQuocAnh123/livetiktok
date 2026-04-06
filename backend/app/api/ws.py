@@ -2,7 +2,9 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,7 +25,14 @@ async def broadcast(message: dict[str, Any]) -> None:
 
 
 @router.websocket("/ws/monitor")
-async def websocket_monitor(websocket: WebSocket):
+async def websocket_monitor(
+    websocket: WebSocket,
+    token: str = Query(default=""),
+):
+    required = get_settings().ws_monitor_token
+    if required and token != required:
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     _connections.append(websocket)
     logger.info("Dashboard client connected (%d total)", len(_connections))

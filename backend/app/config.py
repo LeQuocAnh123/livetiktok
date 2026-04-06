@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     chroma_path: str = "./chroma_data"
     reply_delay_min: int = 5
     reply_delay_max: int = 15
+    # WebSocket monitor authentication — empty string disables auth check (dev only)
+    ws_monitor_token: str = ""
 
 
 @lru_cache(maxsize=1)

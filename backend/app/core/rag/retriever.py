@@ -41,13 +41,11 @@ async def add_chunk(
 ) -> None:
     """Add or update a chunk in the seller's ChromaDB collection (upsert)."""
     collection = _get_collection(seller_id)
-    # ChromaDB requires non-empty metadata dict or None
-    meta = metadata if metadata else None  # ChromaDB rejects empty metadata dicts
     collection.upsert(
         ids=[chunk_id],
         embeddings=[embedding],
         documents=[content],
-        metadatas=[meta],
+        metadatas=[metadata] if metadata else None,
     )
     logger.debug("Upserted chunk %s into collection %s", chunk_id, _collection_name(seller_id))
 
