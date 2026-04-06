@@ -25,7 +25,8 @@ export default function KnowledgePage() {
     }
   }, [page]);
 
-  useEffect(() => { load(); }, [load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load(); }, [load]);
 
   function openCreate() {
     setEditChunk(null);
