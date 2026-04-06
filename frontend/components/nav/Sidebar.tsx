@@ -1,12 +1,14 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Radio, Settings } from "lucide-react";
+import { BarChart2, BookOpen, History, Radio, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
   { href: "/monitor", label: "Live Monitor", icon: Radio },
+  { href: "/analytics", label: "Analytics", icon: BarChart2 },
+  { href: "/sessions", label: "Sessions", icon: History },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

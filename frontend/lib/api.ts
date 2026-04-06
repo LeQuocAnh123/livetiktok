@@ -71,6 +71,28 @@ export interface TestReplyResult {
   chunks_used: string[];
 }
 
+// Analytics
+export interface AnalyticsData {
+  total_sessions: number;
+  total_comments: number;
+  total_replies: number;
+  reply_rate: number;
+  intent_breakdown: Record<string, number>;
+  unanswered_count: number;
+}
+
+// Message log
+export interface MessageLog {
+  id: string;
+  session_id: string;
+  user_unique_id: string;
+  comment: string;
+  reply: string | null;
+  intent: string;
+  chunks_used: string[];
+  created_at: string;
+}
+
 // ── Error type ───────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
@@ -197,6 +219,14 @@ export const api = {
         { method: "GET" },
       );
     },
+
+    messages(sessionId: string, params: { page?: number; limit?: number } = {}): Promise<MessageLog[]> {
+      const { page = 1, limit = 50 } = params;
+      return request(
+        `/api/v1/sessions/${sessionId}/messages${qs({ page, limit })}`,
+        { method: "GET" },
+      );
+    },
   },
 
   settings: {
@@ -217,6 +247,14 @@ export const api = {
       return request("/api/v1/settings/test-reply", {
         method: "POST",
         body: JSON.stringify({ seller_id: SELLER_ID, comment }),
+      });
+    },
+  },
+
+  analytics: {
+    get(): Promise<AnalyticsData> {
+      return request(`/api/v1/analytics/${qs({ seller_id: SELLER_ID })}`, {
+        method: "GET",
       });
     },
   },
