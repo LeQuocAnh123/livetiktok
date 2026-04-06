@@ -32,7 +32,10 @@ export function CommentFeed({ items, selectedId, onSelect }: Props) {
         <div
           key={item.message_id}
           data-message-id={item.message_id}
+          role="button"
+          tabIndex={0}
           onClick={() => onSelect?.(item.message_id)}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect?.(item.message_id)}
           className={`rounded-md bg-white border p-3 text-sm shadow-sm cursor-pointer transition-colors ${
             selectedId === item.message_id ? "ring-2 ring-primary" : "hover:border-slate-300"
           }`}

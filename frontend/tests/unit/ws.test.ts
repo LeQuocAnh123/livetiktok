@@ -50,7 +50,7 @@ beforeEach(async () => {
   // Wait for async open
   await new Promise((r) => setTimeout(r, 10));
   // Grab the internal WS instance for test helpers
-  mockWS = (wsClient as any)._ws;
+  mockWS = wsClient._ws as unknown as MockWebSocket;
 });
 
 afterEach(() => {
