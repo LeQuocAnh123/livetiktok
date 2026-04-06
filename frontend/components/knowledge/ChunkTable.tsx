@@ -24,9 +24,12 @@ export function ChunkTable({ chunks, onEdit, onDelete }: Props) {
   async function handleConfirmDelete() {
     if (!confirmId) return;
     setDeleting(true);
-    await onDelete(confirmId);
-    setDeleting(false);
-    setConfirmId(null);
+    try {
+      await onDelete(confirmId);
+      setConfirmId(null);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (

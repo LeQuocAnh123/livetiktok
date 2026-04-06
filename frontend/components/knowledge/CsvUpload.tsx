@@ -17,7 +17,8 @@ export function CsvUpload({ onDone }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith(".csv")) {
+    const validCsv = file.name.endsWith(".csv") || file.type === "text/csv" || file.type === "application/csv";
+    if (!validCsv) {
       toast.error("Only CSV files are supported");
       return;
     }
@@ -43,6 +44,8 @@ export function CsvUpload({ onDone }: Props) {
         accept=".csv"
         className="hidden"
         onChange={handleFile}
+        aria-hidden="true"
+        tabIndex={-1}
       />
       <Button
         variant="outline"

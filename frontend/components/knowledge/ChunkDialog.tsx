@@ -36,9 +36,14 @@ export function ChunkDialog({ open, chunk, onClose, onSave }: Props) {
   async function handleSave() {
     if (!content.trim()) return;
     setSaving(true);
-    await onSave({ content: content.trim(), category, metadata: chunk?.metadata ?? {} });
-    setSaving(false);
-    onClose();
+    try {
+      await onSave({ content: content.trim(), category, metadata: chunk?.metadata ?? {} });
+      onClose();
+    } catch {
+      // error already toasted by parent; just unblock the button
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
