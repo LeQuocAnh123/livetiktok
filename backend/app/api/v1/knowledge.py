@@ -14,10 +14,12 @@ from app.database import get_db, get_session_factory
 from app.models.knowledge import KnowledgeChunk, KnowledgeCategory
 from app.models.seller import Seller
 from app.schemas.knowledge import (
+    CsvPreviewResponse,
     KnowledgeChunkCreate,
     KnowledgeChunkResponse,
     KnowledgeChunkUpdate,
     KnowledgeListResponse,
+    PreviewRow,
     UploadResponse,
 )
 
@@ -150,6 +152,67 @@ async def delete_chunk_endpoint(
     await db.commit()
 
 
+def _parse_csv_bytes(content_bytes: bytes) -> list[dict]:
+    text = content_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    return list(reader)
+
+
+def _validate_rows(rows: list[dict]) -> tuple[list[PreviewRow], list[str]]:
+    """Return (preview_rows, file_level_warnings)."""
+    valid_categories = {c.value for c in KnowledgeCategory}
+    preview_rows: list[PreviewRow] = []
+    for i, row in enumerate(rows[:5], start=1):
+        content = row.get("content", "").strip()
+        raw_cat = row.get("category", "faq").strip().lower()
+        warning = None
+        is_valid = True
+        if not content:
+            warning = "Cột content trống"
+            is_valid = False
+        elif raw_cat not in valid_categories:
+            warning = f"Category '{raw_cat}' không hợp lệ → sẽ dùng 'faq'"
+        preview_rows.append(PreviewRow(
+            row=i, content=content[:80], category=raw_cat, is_valid=is_valid, warning=warning
+        ))
+
+    warnings: list[str] = []
+    empty = sum(1 for r in rows if not r.get("content", "").strip())
+    bad_cat = sum(1 for r in rows if r.get("category", "faq").strip().lower() not in valid_categories)
+    if empty:
+        warnings.append(f"{empty} dòng có content trống sẽ bị bỏ qua")
+    if bad_cat:
+        warnings.append(f"{bad_cat} dòng có category không hợp lệ sẽ được đặt thành 'faq'")
+    return preview_rows, warnings
+
+
+@router.post("/preview", response_model=CsvPreviewResponse)
+async def preview_knowledge(file: UploadFile):
+    """Parse CSV and return preview without saving anything."""
+    filename = file.filename or ""
+    if not filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+
+    content_bytes = await file.read()
+    rows = _parse_csv_bytes(content_bytes)
+
+    if not rows or "content" not in (rows[0].keys() if rows else []):
+        raise HTTPException(status_code=400, detail="CSV must have a 'content' column")
+
+    if len(rows) > MAX_UPLOAD_ROWS:
+        raise HTTPException(status_code=400, detail=f"File vượt quá {MAX_UPLOAD_ROWS} dòng (có {len(rows)})")
+
+    valid_rows = sum(1 for r in rows if r.get("content", "").strip())
+    preview_rows, warnings = _validate_rows(rows)
+
+    return CsvPreviewResponse(
+        total_rows=len(rows),
+        valid_rows=valid_rows,
+        preview=preview_rows,
+        warnings=warnings,
+    )
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_knowledge(
     seller_id: str,
@@ -163,9 +226,7 @@ async def upload_knowledge(
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
     content_bytes = await file.read()
-    text = content_bytes.decode("utf-8-sig")  # handles BOM
-    reader = csv.DictReader(io.StringIO(text))
-    rows = list(reader)
+    rows = _parse_csv_bytes(content_bytes)
 
     if len(rows) > MAX_UPLOAD_ROWS:
         raise HTTPException(
@@ -178,10 +239,15 @@ async def upload_knowledge(
 
     await _require_seller(seller_id, db)
 
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+
     chunks = []
-    for row in rows:
+    for i, row in enumerate(rows, start=1):
         raw_content = row.get("content", "").strip()
         if not raw_content:
+            skipped += 1
             continue
 
         raw_category = row.get("category", "faq").strip().lower()
@@ -189,6 +255,7 @@ async def upload_knowledge(
             category = KnowledgeCategory(raw_category)
         except ValueError:
             category = KnowledgeCategory.FAQ
+            errors.append(f"Dòng {i}: category '{raw_category}' không hợp lệ, dùng 'faq'")
 
         metadata: dict[str, Any] = {
             k: v for k, v in row.items() if k not in ("content", "category") and v
@@ -203,10 +270,11 @@ async def upload_knowledge(
         )
         db.add(chunk)
         chunks.append(chunk)
+        created += 1
 
     await db.commit()
     for chunk in chunks:
         await db.refresh(chunk)
         background_tasks.add_task(embed_and_store, chunk.id, seller_id)
 
-    return UploadResponse(count=len(chunks), message="Chunks created, embedding in progress")
+    return UploadResponse(created=created, skipped=skipped, errors=errors)

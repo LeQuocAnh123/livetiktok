@@ -29,6 +29,21 @@ export interface UploadResult {
   errors: string[];
 }
 
+export interface PreviewRow {
+  row: number;
+  content: string;
+  category: string;
+  is_valid: boolean;
+  warning: string | null;
+}
+
+export interface CsvPreview {
+  total_rows: number;
+  valid_rows: number;
+  preview: PreviewRow[];
+  warnings: string[];
+}
+
 export type SessionStatus = "active" | "ended" | "paused";
 
 export interface Session {
@@ -181,6 +196,12 @@ export const api = {
 
     delete(id: string): Promise<void> {
       return request(`/api/v1/knowledge/${id}`, { method: "DELETE" });
+    },
+
+    preview(file: File): Promise<CsvPreview> {
+      const form = new FormData();
+      form.append("file", file);
+      return request("/api/v1/knowledge/preview", { method: "POST", body: form });
     },
 
     upload(file: File): Promise<UploadResult> {

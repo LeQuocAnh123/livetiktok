@@ -54,5 +54,21 @@ class KnowledgeListResponse(BaseModel):
 
 
 class UploadResponse(BaseModel):
-    count: int
-    message: str
+    created: int
+    skipped: int
+    errors: list[str]
+
+
+class PreviewRow(BaseModel):
+    row: int
+    content: str
+    category: str
+    is_valid: bool
+    warning: str | None
+
+
+class CsvPreviewResponse(BaseModel):
+    total_rows: int
+    valid_rows: int
+    preview: list[PreviewRow]  # first 5 rows
+    warnings: list[str]  # file-level warnings
