@@ -1,11 +1,12 @@
 """Factory functions to get configured AI providers from settings."""
 from app.config import get_settings
+from app.core.ai.base import AIProvider, EmbedProvider
 from app.core.ai.claude import ClaudeProvider
 from app.core.ai.openai_embed import OpenAIEmbedProvider
 from app.core.ai.openai_llm import OpenAILLMProvider
 
 
-def get_reply_provider():
+def get_reply_provider() -> AIProvider:
     """Return configured reply provider based on AI_REPLY_PROVIDER setting."""
     settings = get_settings()
     provider_name = settings.ai_reply_provider.lower()
@@ -23,7 +24,7 @@ def get_reply_provider():
     raise ValueError(f"Unsupported AI_REPLY_PROVIDER: {provider_name!r}. Use 'claude' or 'openai'.")
 
 
-def get_embed_provider():
+def get_embed_provider() -> EmbedProvider:
     """Return configured embed provider (always OpenAI in v1)."""
     settings = get_settings()
     if not settings.openai_api_key:

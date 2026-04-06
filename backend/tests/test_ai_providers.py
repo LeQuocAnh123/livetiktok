@@ -128,3 +128,66 @@ def test_factory_embed_provider(monkeypatch):
     assert isinstance(provider, OpenAIEmbedProvider)
 
     get_settings.cache_clear()
+
+
+def test_factory_claude_raises_without_api_key(monkeypatch):
+    """get_reply_provider() raises ValueError if ANTHROPIC_API_KEY is missing."""
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    monkeypatch.setenv("SECRET_KEY", "dGVzdC1rZXktMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM=")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setenv("AI_REPLY_PROVIDER", "claude")
+
+    from app.core.ai import factory
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+        factory.get_reply_provider()
+
+    get_settings.cache_clear()
+
+
+def test_factory_openai_raises_without_api_key(monkeypatch):
+    """get_reply_provider() raises ValueError if OPENAI_API_KEY is missing when provider=openai."""
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    monkeypatch.setenv("SECRET_KEY", "dGVzdC1rZXktMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM=")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("AI_REPLY_PROVIDER", "openai")
+
+    from app.core.ai import factory
+    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        factory.get_reply_provider()
+
+    get_settings.cache_clear()
+
+
+def test_factory_embed_raises_without_api_key(monkeypatch):
+    """get_embed_provider() raises ValueError if OPENAI_API_KEY is missing."""
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    monkeypatch.setenv("SECRET_KEY", "dGVzdC1rZXktMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM=")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+
+    from app.core.ai import factory
+    with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        factory.get_embed_provider()
+
+    get_settings.cache_clear()
+
+
+def test_factory_unsupported_provider_raises(monkeypatch):
+    """get_reply_provider() raises ValueError for unsupported provider name."""
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    monkeypatch.setenv("SECRET_KEY", "dGVzdC1rZXktMTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM=")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("AI_REPLY_PROVIDER", "gemini")
+
+    from app.core.ai import factory
+    with pytest.raises(ValueError, match="Unsupported"):
+        factory.get_reply_provider()
+
+    get_settings.cache_clear()
