@@ -26,6 +26,11 @@ def _get_session_factory():
     return _session_factory
 
 
+def get_session_factory():
+    """Public accessor for background tasks that need their own DB session."""
+    return _get_session_factory()
+
+
 async def get_db() -> AsyncSession:
     async with _get_session_factory()() as session:
         yield session
