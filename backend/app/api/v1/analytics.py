@@ -22,28 +22,15 @@ async def get_analytics(seller_id: str, db: AsyncSession = Depends(get_db)):
         select(func.count(LiveSession.id)).where(LiveSession.seller_id == seller_id)
     ) or 0
 
-    session_ids_result = await db.execute(
-        select(LiveSession.id).where(LiveSession.seller_id == seller_id)
-    )
-    session_ids = [row[0] for row in session_ids_result.all()]
-
-    if not session_ids:
-        return AnalyticsResponse(
-            total_sessions=0,
-            total_comments=0,
-            total_replies=0,
-            reply_rate=0.0,
-            intent_breakdown={},
-            unanswered_count=0,
-        )
+    session_subquery = select(LiveSession.id).where(LiveSession.seller_id == seller_id).scalar_subquery()
 
     total_comments = await db.scalar(
-        select(func.count(MessageLog.id)).where(MessageLog.session_id.in_(session_ids))
+        select(func.count(MessageLog.id)).where(MessageLog.session_id.in_(session_subquery))
     ) or 0
 
     total_replies = await db.scalar(
         select(func.count(MessageLog.id)).where(
-            MessageLog.session_id.in_(session_ids),
+            MessageLog.session_id.in_(session_subquery),
             MessageLog.reply.isnot(None),
         )
     ) or 0
@@ -52,14 +39,14 @@ async def get_analytics(seller_id: str, db: AsyncSession = Depends(get_db)):
 
     intent_rows = await db.execute(
         select(MessageLog.intent, func.count(MessageLog.id))
-        .where(MessageLog.session_id.in_(session_ids))
+        .where(MessageLog.session_id.in_(session_subquery))
         .group_by(MessageLog.intent)
     )
     intent_breakdown = {row[0]: row[1] for row in intent_rows.all()}
 
     unanswered_count = await db.scalar(
         select(func.count(MessageLog.id)).where(
-            MessageLog.session_id.in_(session_ids),
+            MessageLog.session_id.in_(session_subquery),
             MessageLog.reply.is_(None),
             MessageLog.intent.notin_(["skipped", "blacklist"]),
         )
