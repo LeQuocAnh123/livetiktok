@@ -14,7 +14,7 @@ export type WSMessage =
 
 type Handler<T extends WSMessage = WSMessage> = (msg: T) => void;
 
-class WSClient {
+export class WSClient {
   _ws: WebSocket | null = null;
   private _listeners: Map<string, Set<Handler>> = new Map();
 
