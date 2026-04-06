@@ -125,6 +125,10 @@ describe("api.sessions.status", () => {
   it("calls GET /api/v1/sessions/status", async () => {
     mockResponse({ connected: false, session: null });
     const result = await api.sessions.status();
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/sessions/status"),
+      expect.objectContaining({ method: "GET" })
+    );
     expect(result.connected).toBe(false);
   });
 });
@@ -141,6 +145,10 @@ describe("api.settings.get", () => {
       auto_reply_enabled: true,
     });
     const result = await api.settings.get();
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/settings/"),
+      expect.objectContaining({ method: "GET" })
+    );
     expect(result.tone).toBe("friendly");
   });
 });
@@ -153,6 +161,10 @@ describe("api.settings.testReply", () => {
       chunks_used: ["c1"],
     });
     const result = await api.settings.testReply("Còn hàng không?");
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/settings/test-reply"),
+      expect.objectContaining({ method: "POST" })
+    );
     expect(result.reply).toBe("Dạ còn ạ!");
   });
 });

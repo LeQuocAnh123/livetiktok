@@ -90,8 +90,12 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_URL}${path}`;
+  // Don't set Content-Type for FormData — browser sets it with boundary automatically
+  const isFormData = options.body instanceof FormData;
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers: isFormData
+      ? (options.headers ?? {})
+      : { "Content-Type": "application/json", ...options.headers },
     ...options,
   });
 
@@ -164,7 +168,6 @@ export const api = {
         `/api/v1/knowledge/upload${qs({ seller_id: SELLER_ID })}`,
         {
           method: "POST",
-          headers: {},
           body: form,
         },
       );
