@@ -22,3 +22,16 @@ class SessionResponse(BaseModel):
 class SessionStatusResponse(BaseModel):
     connected: bool
     session: SessionResponse | None = None
+
+
+class MessageLogResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: str
+    session_id: str
+    user_unique_id: str
+    comment: str
+    reply: str | None
+    intent: str
+    chunks_used: list[str]
+    created_at: datetime

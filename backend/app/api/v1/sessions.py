@@ -21,7 +21,7 @@ from app.database import get_db, get_session_factory
 from app.models.message import MessageLog
 from app.models.seller import Seller
 from app.models.session import LiveSession, SessionStatus
-from app.schemas.session import SessionResponse, SessionStartRequest, SessionStatusResponse
+from app.schemas.session import MessageLogResponse, SessionResponse, SessionStartRequest, SessionStatusResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -280,3 +280,25 @@ async def get_history(
     )
     sessions = result.scalars().all()
     return [SessionResponse.model_validate(s) for s in sessions]
+
+
+@router.get("/{session_id}/messages", response_model=list[MessageLogResponse])
+async def get_session_messages(
+    session_id: str,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    db: AsyncSession = Depends(get_db),
+) -> list[MessageLogResponse]:
+    session = await db.get(LiveSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    offset = (page - 1) * limit
+    result = await db.execute(
+        select(MessageLog)
+        .where(MessageLog.session_id == session_id)
+        .order_by(MessageLog.created_at.asc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return [MessageLogResponse.model_validate(m) for m in result.scalars().all()]
