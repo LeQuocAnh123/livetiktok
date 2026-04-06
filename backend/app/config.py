@@ -34,5 +34,6 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# Backward-compat alias used throughout codebase
-settings = get_settings()
+# Usage: from app.config import get_settings; settings = get_settings()
+# Or use FastAPI dependency injection: Depends(get_settings)
+# Do NOT import 'settings' directly at module level — use get_settings() for testability.
