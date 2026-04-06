@@ -52,5 +52,8 @@ app.include_router(sessions_router)
 from app.api.v1.knowledge import router as knowledge_router  # noqa: E402
 app.include_router(knowledge_router)
 
+from app.api.v1.settings import router as settings_router  # noqa: E402
+app.include_router(settings_router)
+
 from app.api.ws import router as ws_router  # noqa: E402
 app.include_router(ws_router)
