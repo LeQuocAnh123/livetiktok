@@ -19,6 +19,7 @@ export default function AnalyticsPage() {
       .get()
       .then(setData)
       .catch(() => {
+        setData(null);
         setError(true);
         toast.error("Không tải được thống kê");
       })

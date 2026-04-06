@@ -12,7 +12,7 @@ export function UnansweredSummary({ count }: Props) {
         <CardTitle className="text-base">Comment chưa được trả lời</CardTitle>
       </CardHeader>
       <CardContent className="flex items-center gap-3">
-        <span className="text-4xl font-bold text-destructive">{count}</span>
+        <span className={`text-4xl font-bold ${count > 0 ? "text-destructive" : "text-slate-700"}`}>{count}</span>
         {count > 0 ? (
           <Badge variant="destructive">Cần bổ sung Knowledge Base</Badge>
         ) : (
