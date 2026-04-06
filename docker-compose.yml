@@ -22,7 +22,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
+      # NEXT_PUBLIC_API_URL is baked at build time via build.args above
       - NEXT_PUBLIC_WS_URL=ws://backend:8000
       - NEXT_PUBLIC_SELLER_ID=${SELLER_ID}
     depends_on:
