@@ -2,8 +2,9 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,7 @@ _active_session_id: str | None = None
 _active_listener: LiveListener | None = None
 _active_replier: Replier | None = None
 _active_pipeline: RAGPipeline | None = None
+_active_task: asyncio.Task | None = None
 _bot_paused: bool = False
 _reply_count: int = 0
 
@@ -124,6 +126,9 @@ async def _handle_comment(user: str, text: str) -> None:
 
 async def _handle_disconnect() -> None:
     """Callback when TikTok stream ends or connection drops."""
+    global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
+    global _bot_paused, _reply_count
+
     logger.info("TikTok disconnect — marking session ended")
     if _active_session_id:
         async with get_session_factory()() as db:
@@ -135,6 +140,14 @@ async def _handle_disconnect() -> None:
 
     await broadcast({"type": "status", "connected": False})
 
+    _active_session_id = None
+    _active_listener = None
+    _active_replier = None
+    _active_pipeline = None
+    _active_task = None
+    _bot_paused = False
+    _reply_count = 0
+
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 
@@ -142,8 +155,8 @@ async def _handle_disconnect() -> None:
 async def start_session(
     body: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
-):
-    global _active_session_id, _active_listener, _active_replier, _active_pipeline
+) -> SessionStatusResponse:
+    global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
     global _bot_paused, _reply_count
 
     if _active_session_id is not None:
@@ -189,7 +202,12 @@ async def start_session(
     _reply_count = 0
 
     # Start listener in background (non-blocking)
-    asyncio.create_task(listener.start())
+    task = asyncio.create_task(listener.start(), name="tiktok-listener")
+    task.add_done_callback(
+        lambda t: logger.exception("Listener task crashed", exc_info=t.exception())
+        if not t.cancelled() and t.exception() else None
+    )
+    _active_task = task
 
     await broadcast({"type": "status", "connected": True, "room_id": None})
     logger.info("Session started: %s", live_session.id)
@@ -198,12 +216,15 @@ async def start_session(
 
 
 @router.post("/stop")
-async def stop_session(db: AsyncSession = Depends(get_db)):
-    global _active_session_id, _active_listener, _active_replier, _active_pipeline
+async def stop_session(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+    global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
     global _bot_paused, _reply_count
 
     if _active_session_id is None:
         raise HTTPException(status_code=400, detail="No active session")
+
+    if _active_task is not None and not _active_task.done():
+        _active_task.cancel()
 
     if _active_listener is not None:
         try:
@@ -221,6 +242,7 @@ async def stop_session(db: AsyncSession = Depends(get_db)):
     _active_listener = None
     _active_replier = None
     _active_pipeline = None
+    _active_task = None
     _bot_paused = False
     _reply_count = 0
 
@@ -229,7 +251,7 @@ async def stop_session(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/status", response_model=SessionStatusResponse)
-async def get_status(db: AsyncSession = Depends(get_db)):
+async def get_status(db: AsyncSession = Depends(get_db)) -> SessionStatusResponse:
     if _active_session_id is None:
         return SessionStatusResponse(connected=False, session=None)
 
@@ -245,10 +267,10 @@ async def get_status(db: AsyncSession = Depends(get_db)):
 
 @router.get("/history", response_model=list[SessionResponse])
 async def get_history(
-    page: int = 1,
-    limit: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[SessionResponse]:
     offset = (page - 1) * limit
     result = await db.execute(
         select(LiveSession)

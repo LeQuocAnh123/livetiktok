@@ -30,7 +30,7 @@ async def test_start_session_creates_live_session(client, seller):
         patch("app.api.v1.sessions.LiveListener") as mock_listener_cls,
         patch("app.api.v1.sessions.get_embed_provider") as mock_embed_factory,
         patch("app.api.v1.sessions.get_reply_provider") as mock_reply_factory,
-        patch("asyncio.create_task"),
+        patch("app.api.v1.sessions.asyncio.create_task"),
     ):
         mock_client = MagicMock()
         mock_client.web = MagicMock()
@@ -59,7 +59,7 @@ async def test_start_session_twice_returns_400(client, seller):
         patch("app.api.v1.sessions.LiveListener") as mock_listener_cls,
         patch("app.api.v1.sessions.get_embed_provider"),
         patch("app.api.v1.sessions.get_reply_provider"),
-        patch("asyncio.create_task"),
+        patch("app.api.v1.sessions.asyncio.create_task"),
     ):
         mock_client = MagicMock()
         mock_client.web = MagicMock()
@@ -80,7 +80,7 @@ async def test_stop_session(client, seller):
         patch("app.api.v1.sessions.LiveListener") as mock_listener_cls,
         patch("app.api.v1.sessions.get_embed_provider"),
         patch("app.api.v1.sessions.get_reply_provider"),
-        patch("asyncio.create_task"),
+        patch("app.api.v1.sessions.asyncio.create_task"),
     ):
         mock_client = MagicMock()
         mock_client.web = MagicMock()

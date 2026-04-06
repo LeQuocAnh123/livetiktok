@@ -45,6 +45,7 @@ def reset_session_state():
     sessions_module._active_listener = None
     sessions_module._active_replier = None
     sessions_module._active_pipeline = None
+    sessions_module._active_task = None
     sessions_module._bot_paused = False
     sessions_module._reply_count = 0
     yield
@@ -52,5 +53,6 @@ def reset_session_state():
     sessions_module._active_listener = None
     sessions_module._active_replier = None
     sessions_module._active_pipeline = None
+    sessions_module._active_task = None
     sessions_module._bot_paused = False
     sessions_module._reply_count = 0
