@@ -49,5 +49,8 @@ async def health():
 from app.api.v1.sessions import router as sessions_router  # noqa: E402
 app.include_router(sessions_router)
 
+from app.api.v1.knowledge import router as knowledge_router  # noqa: E402
+app.include_router(knowledge_router)
+
 from app.api.ws import router as ws_router  # noqa: E402
 app.include_router(ws_router)
