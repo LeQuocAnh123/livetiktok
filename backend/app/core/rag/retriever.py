@@ -25,7 +25,7 @@ def _collection_name(seller_id: str) -> str:
     return f"seller_{seller_id}"
 
 
-def _get_collection(seller_id: str):
+def _get_collection(seller_id: str) -> chromadb.Collection:
     return _get_client().get_or_create_collection(
         name=_collection_name(seller_id),
         metadata={"hnsw:space": "cosine"},
@@ -42,7 +42,7 @@ async def add_chunk(
     """Add or update a chunk in the seller's ChromaDB collection (upsert)."""
     collection = _get_collection(seller_id)
     # ChromaDB requires non-empty metadata dict or None
-    meta = metadata if metadata else None
+    meta = metadata if metadata else None  # ChromaDB rejects empty metadata dicts
     collection.upsert(
         ids=[chunk_id],
         embeddings=[embedding],
