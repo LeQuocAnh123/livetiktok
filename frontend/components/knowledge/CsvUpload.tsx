@@ -74,19 +74,14 @@ export function CsvUpload({ onDone }: Props) {
         aria-hidden="true"
         tabIndex={-1}
       />
-      <button
-        disabled={loading}
-        onClick={() => inputRef.current?.click()}
-        className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-400/50 bg-blue-50 p-8 text-blue-600 hover:bg-blue-100 hover:border-blue-500 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full h-full"
-      >
-        <Upload className="h-8 w-8" />
-        <span className="text-base font-semibold">{loading ? "Đang đọc…" : "Import CSV"}</span>
-        <span className="text-xs text-blue-400">Nhập hàng loạt từ file CSV</span>
-      </button>
+      <Button variant="outline" disabled={loading} onClick={() => inputRef.current?.click()}>
+        <Upload className="h-4 w-4 mr-1" />
+        {loading ? "Đang đọc…" : "Import CSV"}
+      </Button>
 
       {/* Preview modal */}
       <Dialog open={!!preview} onOpenChange={handleCancel}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Xác nhận import CSV</DialogTitle>
             <DialogDescription>
@@ -120,7 +115,7 @@ export function CsvUpload({ onDone }: Props) {
               {/* Preview rows */}
               <div>
                 <p className="text-xs text-muted-foreground mb-2">Preview 5 dòng đầu:</p>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                   {preview.preview.map((row) => (
                     <div
                       key={row.row}
@@ -138,7 +133,7 @@ export function CsvUpload({ onDone }: Props) {
                           )}
                         </div>
                       </div>
-                      <p className={row.is_valid ? "text-slate-700" : "text-slate-400 line-through"}>
+                      <p className={`text-sm leading-relaxed whitespace-pre-wrap ${row.is_valid ? "text-slate-700" : "text-slate-400 line-through"}`}>
                         {row.content || "(trống)"}
                       </p>
                     </div>
