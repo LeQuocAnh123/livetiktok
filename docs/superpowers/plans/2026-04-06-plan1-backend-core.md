@@ -607,8 +607,7 @@ async def test_send_applies_throttle(mock_web_client):
     mock_web_client.send_room_chat.assert_called_once()
 
 
-@pytest.mark.asyncio
-async async def test_send_calls_with_correct_args(mock_web_client):
+async def test_send_calls_with_correct_args(mock_web_client):
     # Credentials are set via web_client.set_session() before calling send()
     # Replier only passes content — session cookies already set on the web client
     replier = Replier(web_client=mock_web_client, delay_min=0, delay_max=0)

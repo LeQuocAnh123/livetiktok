@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     # AI
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
+    groq_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
     ai_reply_provider: str = "claude"
     ai_embed_provider: str = "openai"
 

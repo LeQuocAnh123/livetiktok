@@ -1,16 +1,34 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api, type BotSettings } from "@/lib/api";
+
+const TONES = [
+  { value: "friendly", label: "Thân thiện" },
+  { value: "professional", label: "Chuyên nghiệp" },
+  { value: "casual", label: "Tự nhiên, bình thường" },
+  { value: "enthusiastic", label: "Nhiệt tình, năng động" },
+  { value: "formal", label: "Lịch sự, trang trọng" },
+];
 
 export function SettingsForm() {
   const [settings, setSettings] = useState<BotSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+  const [keywordInput, setKeywordInput] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   function loadSettings() {
     setError(false);
@@ -46,6 +64,36 @@ export function SettingsForm() {
     setSettings((s) => (s ? { ...s, [key]: value } : s));
   }
 
+  function addKeyword() {
+    const word = keywordInput.trim();
+    if (!word) return;
+    const words = word.split(/[,\n]+/).map((w) => w.trim()).filter(Boolean);
+    const existing = settings!.blacklist_keywords;
+    const toAdd = words.filter((w) => !existing.includes(w));
+    if (toAdd.length > 0) {
+      update("blacklist_keywords", [...existing, ...toAdd]);
+    }
+    setKeywordInput("");
+    inputRef.current?.focus();
+  }
+
+  function removeKeyword(kw: string) {
+    update(
+      "blacklist_keywords",
+      settings!.blacklist_keywords.filter((k) => k !== kw),
+    );
+  }
+
+  function handleKeywordKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addKeyword();
+    } else if (e.key === "Backspace" && keywordInput === "" && settings!.blacklist_keywords.length > 0) {
+      const kws = settings!.blacklist_keywords;
+      update("blacklist_keywords", kws.slice(0, -1));
+    }
+  }
+
   async function handleSave() {
     if (!settings) return;
     setSaving(true);
@@ -63,24 +111,53 @@ export function SettingsForm() {
   return (
     <div className="space-y-6 max-w-md">
       <div className="grid gap-2">
-        <Label htmlFor="tone">Tone</Label>
-        <Input
-          id="tone"
-          value={settings.tone}
-          onChange={(e) => update("tone", e.target.value)}
-          placeholder="friendly, professional, casual…"
-        />
+        <Label>Tone</Label>
+        <Select value={settings.tone} onValueChange={(v) => update("tone", v)}>
+          <SelectTrigger>
+            <SelectValue placeholder="Chọn tone…" />
+          </SelectTrigger>
+          <SelectContent>
+            {TONES.map((t) => (
+              <SelectItem key={t.value} value={t.value}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid gap-2">
-        <Label htmlFor="blacklist">Blacklist Keywords (comma-separated)</Label>
-        <Input
-          id="blacklist"
-          value={settings.blacklist_keywords.join(", ")}
-          onChange={(e) =>
-            update("blacklist_keywords", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))
-          }
-        />
+        <Label>Từ khoá bị chặn</Label>
+        <div
+          className="flex flex-wrap gap-1.5 min-h-[42px] w-full rounded-md border border-input bg-background px-3 py-2 cursor-text"
+          onClick={() => inputRef.current?.focus()}
+        >
+          {settings.blacklist_keywords.map((kw) => (
+            <span
+              key={kw}
+              className="inline-flex items-center gap-1 rounded bg-destructive/10 text-destructive px-2 py-0.5 text-xs font-medium"
+            >
+              {kw}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); removeKeyword(kw); }}
+                className="hover:text-destructive/70"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <Input
+            ref={inputRef}
+            className="border-0 p-0 h-auto flex-1 min-w-[120px] shadow-none focus-visible:ring-0 text-sm"
+            placeholder={settings.blacklist_keywords.length === 0 ? "Nhập từ khoá, Enter để thêm…" : ""}
+            value={keywordInput}
+            onChange={(e) => setKeywordInput(e.target.value)}
+            onKeyDown={handleKeywordKeyDown}
+            onBlur={addKeyword}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Nhấn Enter hoặc dấu phẩy để thêm. Backspace để xoá từ cuối.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">

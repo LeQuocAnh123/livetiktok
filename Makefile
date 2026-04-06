@@ -1,4 +1,4 @@
-.PHONY: install install-fe setup dev-backend dev-frontend test lint db-migrate db-reset up down logs build
+.PHONY: install install-fe setup dev dev-backend dev-frontend test lint db-migrate db-reset up down logs build
 
 # === SETUP ===
 install:
@@ -13,6 +13,13 @@ setup: install
 	@echo "✅ Setup done. Edit backend/.env with your SECRET_KEY and API keys before running."
 
 # === DEVELOPMENT ===
+dev:
+	@echo "Starting backend (port 8000) and frontend (port 3000)..."
+	@trap 'kill 0' SIGINT; \
+	  (cd backend && uvicorn app.main:app --reload --port 8000) & \
+	  (cd frontend && npm run dev) & \
+	  wait
+
 dev-backend:
 	cd backend && uvicorn app.main:app --reload --port 8000
 

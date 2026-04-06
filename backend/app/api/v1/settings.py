@@ -55,6 +55,12 @@ async def test_reply(body: TestReplyRequest, db: AsyncSession = Depends(get_db))
     seller = await _get_seller(body.seller_id, db)
     settings = seller.bot_settings
 
+    # Blacklist check
+    blacklist = settings.get("blacklist_keywords", [])
+    comment_lower = body.comment.lower()
+    if any(kw.lower() in comment_lower for kw in blacklist):
+        return TestReplyResponse(reply="[Bị chặn] Comment chứa từ khoá bị cấm.", intent="blacklist", chunks_used=[])
+
     intent = detect_intent(body.comment)
 
     embed_provider = get_embed_provider()
