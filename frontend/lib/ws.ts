@@ -14,7 +14,14 @@ export type WSMessage =
 
 type Handler<T extends WSMessage = WSMessage> = (msg: T) => void;
 
+export type SendMessage =
+  | { type: "pause_bot" }
+  | { type: "resume_bot" }
+  | { type: "manual_reply"; message_id: string; content: string };
+
 export class WSClient {
+  // Intentionally public (no underscore-private) so test code can inspect or
+  // stub the underlying socket without resorting to `as any` casts.
   _ws: WebSocket | null = null;
   private _listeners: Map<string, Set<Handler>> = new Map();
 
@@ -48,10 +55,12 @@ export class WSClient {
     }
   }
 
-  send(msg: object): void {
+  send(msg: SendMessage): boolean {
     if (this._ws?.readyState === WebSocket.OPEN) {
       this._ws.send(JSON.stringify(msg));
+      return true;
     }
+    return false;
   }
 
   on<T extends WSMessage>(type: T["type"], handler: Handler<T>): () => void {

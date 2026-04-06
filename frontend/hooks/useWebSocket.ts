@@ -32,13 +32,19 @@ export function useWebSocket(
 
     wsClient.connect(url);
 
-    const unsubs = (Object.keys(handlers) as WSMessage["type"][]).map((type) => {
-      return wsClient.on(type, (msg) => {
-        // Always call the latest version of the handler via ref
-        const h = handlersRef.current[type as keyof typeof handlersRef.current];
-        if (h) (h as (m: WSMessage) => void)(msg);
-      });
-    });
+    const unsubs = (Object.keys(handlers) as Array<keyof typeof handlers>).map(
+      (type) =>
+        // wsClient.on<T>(type, ...) narrows `msg` to the specific variant
+        // matching `type`, so the handler from the ref is safe to invoke
+        // without an unsafe `as (m: WSMessage) => void` cast.
+        wsClient.on(type, (msg) => {
+          (
+            handlersRef.current[type] as
+              | ((m: typeof msg) => void)
+              | undefined
+          )?.(msg);
+        }),
+    );
 
     return () => {
       unsubs.forEach((u) => u());
