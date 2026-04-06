@@ -46,13 +46,15 @@ export function ChunkTable({ chunks, onEdit, onDelete }: Props) {
         <TableBody>
           {chunks.map((chunk) => (
             <TableRow key={chunk.id}>
-              <TableCell className="max-w-xs truncate">{chunk.content}</TableCell>
+              <TableCell className="whitespace-pre-wrap break-words">{chunk.content}</TableCell>
               <TableCell>
                 <Badge variant="outline">{chunk.category}</Badge>
               </TableCell>
               <TableCell>
-                {chunk.needs_reembed && (
-                  <Badge variant="secondary" className="text-xs">pending embed</Badge>
+                {chunk.needs_reembed ? (
+                  <Badge variant="secondary" className="text-xs">Chưa embed</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs text-green-600 border-green-400">Đã sync</Badge>
                 )}
               </TableCell>
               <TableCell className="text-right">
