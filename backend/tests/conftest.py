@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.database import Base, get_db
 
+_ANALYTICS_SELLER_ID = "analytics-seller-001"
+
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 
@@ -34,6 +36,23 @@ async def client(db_session):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def seller_id(db_session) -> str:
+    """Insert a bare-minimum Seller row and return its ID."""
+    from app.models.seller import Seller
+
+    seller = Seller(
+        id=_ANALYTICS_SELLER_ID,
+        name="Analytics Test Seller",
+        tiktok_unique_id="analytics_test",
+        tiktok_session_id_encrypted="enc_session",
+        tiktok_target_idc_encrypted="enc_idc",
+    )
+    db_session.add(seller)
+    await db_session.commit()
+    return _ANALYTICS_SELLER_ID
 
 
 @pytest.fixture(autouse=True)

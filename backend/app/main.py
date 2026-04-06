@@ -80,3 +80,6 @@ app.include_router(settings_router)
 
 from app.api.ws import router as ws_router  # noqa: E402
 app.include_router(ws_router)
+
+from app.api.v1.analytics import router as analytics_router  # noqa: E402
+app.include_router(analytics_router)
