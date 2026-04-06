@@ -2,9 +2,9 @@
 import csv
 import io
 import logging
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,11 +12,13 @@ from app.core.ai.factory import get_embed_provider
 from app.core.rag import retriever
 from app.database import get_db, get_session_factory
 from app.models.knowledge import KnowledgeChunk, KnowledgeCategory
+from app.models.seller import Seller
 from app.schemas.knowledge import (
     KnowledgeChunkCreate,
     KnowledgeChunkResponse,
     KnowledgeChunkUpdate,
     KnowledgeListResponse,
+    UploadResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,12 +50,20 @@ async def embed_and_store(chunk_id: str, seller_id: str) -> None:
             logger.exception("Failed to embed chunk %s", chunk_id)
 
 
+async def _require_seller(seller_id: str, db: AsyncSession) -> None:
+    """Raise 404 if seller does not exist."""
+    seller = await db.get(Seller, seller_id)
+    if seller is None:
+        raise HTTPException(status_code=404, detail="Seller not found")
+
+
 @router.post("/", response_model=KnowledgeChunkResponse, status_code=201)
 async def create_chunk(
     body: KnowledgeChunkCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
+    await _require_seller(body.seller_id, db)
     chunk = KnowledgeChunk(
         seller_id=body.seller_id,
         content=body.content,
@@ -71,8 +81,8 @@ async def create_chunk(
 @router.get("/", response_model=KnowledgeListResponse)
 async def list_chunks(
     seller_id: str,
-    page: int = 1,
-    limit: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
     db: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * limit
@@ -140,7 +150,7 @@ async def delete_chunk_endpoint(
     await db.commit()
 
 
-@router.post("/upload")
+@router.post("/upload", response_model=UploadResponse)
 async def upload_knowledge(
     seller_id: str,
     file: UploadFile,
@@ -163,8 +173,10 @@ async def upload_knowledge(
             detail=f"File exceeds maximum {MAX_UPLOAD_ROWS} rows (got {len(rows)})",
         )
 
-    if not rows or "content" not in (rows[0].keys() if rows else []):
+    if not rows or "content" not in rows[0].keys():
         raise HTTPException(status_code=400, detail="CSV must have a 'content' column")
+
+    await _require_seller(seller_id, db)
 
     chunks = []
     for row in rows:
@@ -197,4 +209,4 @@ async def upload_knowledge(
         await db.refresh(chunk)
         background_tasks.add_task(embed_and_store, chunk.id, seller_id)
 
-    return {"count": len(chunks), "message": "Chunks created, embedding in progress"}
+    return UploadResponse(count=len(chunks), message="Chunks created, embedding in progress")

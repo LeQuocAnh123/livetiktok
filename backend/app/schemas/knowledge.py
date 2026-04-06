@@ -1,8 +1,14 @@
 """Pydantic schemas for Knowledge Base API."""
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from pydantic import BaseModel
 
 from app.models.knowledge import KnowledgeCategory
+
+if TYPE_CHECKING:
+    from app.models.knowledge import KnowledgeChunk
 
 
 class KnowledgeChunkCreate(BaseModel):
@@ -29,7 +35,7 @@ class KnowledgeChunkResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_orm_model(cls, obj) -> "KnowledgeChunkResponse":
+    def from_orm_model(cls, obj: "KnowledgeChunk") -> "KnowledgeChunkResponse":
         return cls(
             id=obj.id,
             seller_id=obj.seller_id,
@@ -45,3 +51,8 @@ class KnowledgeListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+
+class UploadResponse(BaseModel):
+    count: int
+    message: str
