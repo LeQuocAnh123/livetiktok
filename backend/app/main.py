@@ -39,11 +39,34 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     settings = get_settings()
-    return {
+    results: dict = {
         "status": "ok",
-        "ai_reply_provider": settings.ai_reply_provider,
-        "ai_embed_provider": settings.ai_embed_provider,
+        "ai_provider": settings.ai_reply_provider,
+        "db": "unknown",
+        "chroma": "unknown",
     }
+
+    # Check DB
+    try:
+        from sqlalchemy import text
+        from app.database import _get_engine
+        async with _get_engine().connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        results["db"] = "ok"
+    except Exception as exc:
+        results["db"] = f"error: {exc}"
+        results["status"] = "degraded"
+
+    # Check ChromaDB
+    try:
+        from app.core.rag.retriever import _get_client
+        _get_client().heartbeat()
+        results["chroma"] = "ok"
+    except Exception as exc:
+        results["chroma"] = f"error: {exc}"
+        results["status"] = "degraded"
+
+    return results
 
 
 from app.api.v1.sessions import router as sessions_router  # noqa: E402

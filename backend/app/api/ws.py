@@ -7,7 +7,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Broadcast registry — single-seller v1
 _connections: list[WebSocket] = []
 
 
@@ -36,8 +35,23 @@ async def websocket_monitor(websocket: WebSocket):
             except json.JSONDecodeError:
                 logger.warning("Invalid JSON from WS client, ignoring")
                 continue
-            logger.info("WS command received: %s", msg.get("type"))
-            # Command handling wired in Plan 2 (RAG pipeline)
+
+            msg_type = msg.get("type")
+            logger.info("WS command received: %s", msg_type)
+
+            if msg_type == "pause_bot":
+                import app.api.v1.sessions as sessions_module
+                sessions_module._bot_paused = True
+                await broadcast({"type": "status", "paused": True})
+
+            elif msg_type == "resume_bot":
+                import app.api.v1.sessions as sessions_module
+                sessions_module._bot_paused = False
+                await broadcast({"type": "status", "paused": False})
+
+            elif msg_type == "manual_reply":
+                await _handle_manual_reply(msg)
+
     except WebSocketDisconnect:
         if websocket in _connections:
             _connections.remove(websocket)
@@ -46,3 +60,44 @@ async def websocket_monitor(websocket: WebSocket):
         logger.exception("WebSocket error")
         if websocket in _connections:
             _connections.remove(websocket)
+
+
+async def _handle_manual_reply(msg: dict) -> None:
+    """Send a manual reply for a specific message_id via the active replier."""
+    import app.api.v1.sessions as sessions_module
+    from app.database import get_session_factory
+    from app.models.message import MessageLog
+
+    message_id = msg.get("message_id")
+    content = msg.get("content", "").strip()
+
+    if not message_id or not content:
+        logger.warning("manual_reply missing message_id or content")
+        return
+
+    replier = sessions_module._active_replier
+    if replier is None:
+        await broadcast({"type": "error", "message": "No active session"})
+        return
+
+    try:
+        await replier.send(content)
+    except Exception as exc:
+        logger.exception("manual_reply send failed")
+        await broadcast({"type": "error", "message": str(exc)})
+        return
+
+    async with get_session_factory()() as db:
+        log = await db.get(MessageLog, message_id)
+        if log:
+            log.reply = content
+            log.intent = "manual"
+            await db.commit()
+
+    await broadcast({
+        "type": "reply",
+        "message_id": message_id,
+        "content": content,
+        "intent": "manual",
+        "chunks_used": [],
+    })
