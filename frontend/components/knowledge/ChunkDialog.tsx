@@ -48,7 +48,7 @@ export function ChunkDialog({ open, chunk, onClose, onSave }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl w-full">
         <DialogHeader>
           <DialogTitle>{chunk ? "Edit Chunk" : "Add Chunk"}</DialogTitle>
         </DialogHeader>
@@ -57,7 +57,8 @@ export function ChunkDialog({ open, chunk, onClose, onSave }: Props) {
             <Label htmlFor="content">Content</Label>
             <Textarea
               id="content"
-              rows={10}
+              rows={12}
+              className="min-h-[200px] resize-y"
               placeholder="Describe a product, policy, or FAQ answer…"
               value={content}
               onChange={(e) => setContent(e.target.value)}

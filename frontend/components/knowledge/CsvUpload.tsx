@@ -81,7 +81,7 @@ export function CsvUpload({ onDone }: Props) {
 
       {/* Preview modal */}
       <Dialog open={!!preview} onOpenChange={handleCancel}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="sm:max-w-3xl w-full">
           <DialogHeader>
             <DialogTitle>Xác nhận import CSV</DialogTitle>
             <DialogDescription>
