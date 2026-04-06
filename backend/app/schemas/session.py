@@ -5,7 +5,7 @@ from app.models.session import SessionStatus
 
 class SessionStartRequest(BaseModel):
     seller_id: str
-    tiktok_unique_id: str
+    # tiktok_unique_id is read from Seller record, not passed in request
 
 
 class SessionResponse(BaseModel):

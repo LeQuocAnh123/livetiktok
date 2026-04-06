@@ -38,8 +38,19 @@ async def client(db_session):
 
 @pytest.fixture(autouse=True)
 def reset_session_state():
-    """Reset module-level session state between tests to prevent leakage."""
+    """Reset all module-level session state between tests."""
     import app.api.v1.sessions as sessions_module
+    # Reset all Plan 1 + Plan 2 globals
     sessions_module._active_session_id = None
+    sessions_module._active_listener = None
+    sessions_module._active_replier = None
+    sessions_module._active_pipeline = None
+    sessions_module._bot_paused = False
+    sessions_module._reply_count = 0
     yield
     sessions_module._active_session_id = None
+    sessions_module._active_listener = None
+    sessions_module._active_replier = None
+    sessions_module._active_pipeline = None
+    sessions_module._bot_paused = False
+    sessions_module._reply_count = 0
