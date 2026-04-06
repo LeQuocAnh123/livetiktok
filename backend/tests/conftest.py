@@ -34,3 +34,12 @@ async def client(db_session):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
         app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def reset_session_state():
+    """Reset module-level session state between tests to prevent leakage."""
+    import app.api.v1.sessions as sessions_module
+    sessions_module._active_session_id = None
+    yield
+    sessions_module._active_session_id = None
