@@ -1,3 +1,6 @@
+from functools import lru_cache
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,15 +11,15 @@ class Settings(BaseSettings):
     secret_key: str
 
     # AI
-    anthropic_api_key: str = ""
-    openai_api_key: str = ""
+    anthropic_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
     ai_reply_provider: str = "claude"
     ai_embed_provider: str = "openai"
 
     # TikTok
-    tiktok_session_id: str = ""
+    tiktok_session_id: Optional[str] = None
     tiktok_target_idc: str = "useast1a"
-    tiktok_sign_api_key: str = ""
+    tiktok_sign_api_key: Optional[str] = None
     whitelist_authenticated_session_id_host: str = "tiktok.eulerstream.com"
 
     # App
@@ -26,4 +29,10 @@ class Settings(BaseSettings):
     reply_delay_max: int = 15
 
 
-settings = Settings()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()
+
+
+# Backward-compat alias used throughout codebase
+settings = get_settings()
