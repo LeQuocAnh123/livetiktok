@@ -21,7 +21,7 @@ class KnowledgeChunk(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     seller_id: Mapped[str] = mapped_column(ForeignKey("sellers.id"), nullable=False)
     content: Mapped[str] = mapped_column(String, nullable=False)
-    category: Mapped[str] = mapped_column(String, nullable=False, default=KnowledgeCategory.FAQ)
+    category: Mapped[KnowledgeCategory] = mapped_column(String, nullable=False, default=KnowledgeCategory.FAQ)
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, nullable=False, default=dict)
     needs_reembed: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(
