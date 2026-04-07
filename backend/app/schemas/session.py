@@ -31,5 +31,6 @@ class MessageLogResponse(BaseModel):
     comment: str
     reply: str | None
     intent: str
+    sentiment: str = "neutral"
     chunks_used: list[str]
     created_at: datetime

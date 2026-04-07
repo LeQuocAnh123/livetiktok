@@ -33,4 +33,5 @@ class TestReplyRequest(BaseModel):
 class TestReplyResponse(BaseModel):
     reply: str
     intent: str
+    sentiment: str
     chunks_used: list[str]

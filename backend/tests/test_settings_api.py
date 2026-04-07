@@ -62,6 +62,7 @@ async def test_test_reply(auth_client, test_seller):
         patch("app.api.v1.settings.get_embed_provider") as mock_embed_factory,
         patch("app.api.v1.settings.retriever.query", new_callable=AsyncMock) as mock_query,
         patch("app.api.v1.settings.get_reply_provider") as mock_reply_factory,
+        patch("app.api.v1.settings.get_recent_overrides", new_callable=AsyncMock) as mock_overrides,
     ):
         mock_embed_provider = AsyncMock()
         mock_embed_provider.embed = AsyncMock(return_value=[0.1] * 1536)
@@ -74,10 +75,14 @@ async def test_test_reply(auth_client, test_seller):
         mock_reply_provider = AsyncMock()
         mock_reply_provider.generate_reply = AsyncMock(
             return_value=LLMResult(
-                intent="product_inquiry", sentiment="neutral", reply="Dạ giá 150k ạ!"
+                intent="product_inquiry",
+                sentiment="neutral",
+                reply="Dạ giá 150k ạ!",
             )
         )
         mock_reply_factory.return_value = mock_reply_provider
+
+        mock_overrides.return_value = []
 
         resp = await auth_client.post(
             "/api/v1/settings/test-reply",
@@ -89,7 +94,8 @@ async def test_test_reply(auth_client, test_seller):
     assert resp.status_code == 200
     data = resp.json()
     assert data["reply"] == "Dạ giá 150k ạ!"
-    assert "intent" in data
+    assert data["intent"] == "product_inquiry"
+    assert data["sentiment"] == "neutral"
     assert "chunks_used" in data
 
 

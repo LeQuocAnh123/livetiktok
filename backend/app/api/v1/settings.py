@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_seller
+from app.core.ai.base import LLMResult
 from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.rag import retriever
-from app.core.rag.pipeline import SYSTEM_PROMPT_TEMPLATE
+from app.core.rag.overrides import get_recent_overrides
+from app.core.rag.pipeline import SYSTEM_PROMPT_TEMPLATE, _format_override_examples
 from app.database import get_db
 from app.models.seller import Seller
 from app.schemas.settings import (
@@ -65,7 +67,10 @@ async def test_reply(
     comment_lower = body.comment.lower()
     if any(kw.lower() in comment_lower for kw in blacklist):
         return TestReplyResponse(
-            reply="[Bị chặn] Comment chứa từ khoá bị cấm.", intent="blacklist", chunks_used=[]
+            reply="[Bị chặn] Comment chứa từ khoá bị cấm.",
+            intent="blacklist",
+            sentiment="neutral",
+            chunks_used=[],
         )
 
     embed_provider = get_embed_provider()
@@ -73,18 +78,23 @@ async def test_reply(
 
     chunks = await retriever.query(seller_id, embedding, n_results=3)
     context = "\n\n".join(c["content"] for c in chunks)
+
+    # Fetch override examples and build prompt
+    overrides = await get_recent_overrides(seller_id, db, limit=5)
+    override_block = _format_override_examples(overrides)
     system = SYSTEM_PROMPT_TEMPLATE.format(
         tone=settings.get("tone", "friendly"),
-        override_examples="",
+        override_examples=override_block,
     )
 
     reply_provider = get_reply_provider()
-    llm_result = await reply_provider.generate_reply(
+    llm_result: LLMResult = await reply_provider.generate_reply(
         system=system, context=context, user_msg=body.comment
     )
 
     return TestReplyResponse(
         reply=llm_result.reply,
         intent=llm_result.intent,
+        sentiment=llm_result.sentiment,
         chunks_used=[c["id"] for c in chunks],
     )
