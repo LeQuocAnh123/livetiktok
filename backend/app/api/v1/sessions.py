@@ -17,6 +17,7 @@ from app.api.ws import broadcast
 from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.crypto import decrypt
 from app.core.rag import retriever
+from app.core.rag.overrides import get_recent_overrides
 from app.core.rag.pipeline import RAGPipeline
 from app.core.session_state import get_session_state
 from app.core.tiktok.listener import LiveListener
@@ -38,29 +39,21 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
 
-def _build_pipeline(seller: Seller) -> RAGPipeline:
+def _build_pipeline(seller: Seller, fetch_overrides_fn) -> RAGPipeline:
     embed_provider = get_embed_provider()
     reply_provider = get_reply_provider()
-
-    async def _fetch_overrides(seller_id: str) -> list[tuple[str, str]]:
-        """Placeholder: return empty list until override storage is implemented."""
-        return []
-
     return RAGPipeline(
         seller_id=seller.id,
         seller_settings=seller.bot_settings,
         embed_fn=embed_provider.embed,
         retrieve_fn=retriever.query,
         generate_reply_fn=reply_provider.generate_reply,
-        fetch_overrides_fn=_fetch_overrides,
+        fetch_overrides_fn=fetch_overrides_fn,
     )
 
 
 async def _handle_comment(seller_id: str, user: str, text: str) -> None:
-    """Background callback: filter → RAG → save → reply → broadcast.
-
-    Note: seller_id is bound via functools.partial when registering the callback.
-    """
+    """Background callback: filter → RAG → save → reply → broadcast."""
     state = get_session_state(seller_id)
 
     if state.bot_paused or state.active_pipeline is None or state.active_session_id is None:
@@ -71,22 +64,20 @@ async def _handle_comment(seller_id: str, user: str, text: str) -> None:
         logger.info("max_replies_per_session reached (%d), skipping", max_replies)
         return
 
-    # Save incoming comment
+    # Save incoming comment (intent/sentiment updated after LLM)
     message_id: str | None = None
     async with get_session_factory()() as db:
         msg = MessageLog(
             session_id=state.active_session_id,
             user_unique_id=user,
             comment=text,
-            intent="unknown",
-            chunks_used=[],
         )
         db.add(msg)
         await db.commit()
         await db.refresh(msg)
         message_id = msg.id
 
-    # Broadcast comment to dashboard (with seller_id for routing)
+    # Broadcast comment to dashboard
     await broadcast(
         {
             "type": "comment",
@@ -98,35 +89,38 @@ async def _handle_comment(seller_id: str, user: str, text: str) -> None:
         }
     )
 
-    # Run RAG pipeline
+    # Run RAG pipeline (now returns intent + sentiment + reply)
     result = await state.active_pipeline.process(user, text)
 
+    # Update message with intent and sentiment regardless of skip
+    async with get_session_factory()() as db:
+        msg = await db.get(MessageLog, message_id)
+        if msg:
+            msg.intent = result.intent
+            msg.sentiment = result.sentiment
+            await db.commit()
+
     if result.skipped or result.reply is None:
-        async with get_session_factory()() as db:
-            msg = await db.get(MessageLog, message_id)
-            if msg:
-                msg.intent = result.intent
-                await db.commit()
         return
 
-    # Send reply via replier (with throttle)
+    # Send reply via TikTok
     try:
         if state.active_replier is not None:
             await state.active_replier.send(result.reply)
         state.reply_count += 1
     except Exception:
         logger.exception("Failed to send TikTok reply")
+        return
 
-    # Persist reply
+    # Persist reply and chunks to DB
     async with get_session_factory()() as db:
         msg = await db.get(MessageLog, message_id)
         if msg:
             msg.reply = result.reply
-            msg.intent = result.intent
             msg.chunks_used = result.chunks_used
             await db.commit()
 
-    # Broadcast reply to dashboard (with seller_id for routing)
+    # Broadcast reply to dashboard (with sentiment)
     await broadcast(
         {
             "type": "reply",
@@ -134,9 +128,24 @@ async def _handle_comment(seller_id: str, user: str, text: str) -> None:
             "message_id": message_id,
             "content": result.reply,
             "intent": result.intent,
+            "sentiment": result.sentiment,
             "chunks_used": result.chunks_used,
         }
     )
+
+    # Negative sentiment: alert dashboard + bypass cooldown for this user
+    if result.sentiment == "negative":
+        await broadcast(
+            {
+                "type": "alert",
+                "seller_id": seller_id,
+                "severity": "negative",
+                "message_id": message_id,
+                "comment": text,
+                "user": user,
+            }
+        )
+        state.active_pipeline._filter.reset_cooldown(user)
 
 
 async def _handle_disconnect(seller_id: str) -> None:
@@ -189,7 +198,13 @@ async def start_session(
         delay_min=float(current_seller.bot_settings.get("reply_delay_min", 5)),
         delay_max=float(current_seller.bot_settings.get("reply_delay_max", 15)),
     )
-    pipeline = _build_pipeline(current_seller)
+
+    # Build fetch_overrides_fn bound to seller_id
+    async def _fetch_overrides(sid: str) -> list[tuple[str, str]]:
+        async with get_session_factory()() as db:
+            return await get_recent_overrides(sid, db, limit=5)
+
+    pipeline = _build_pipeline(current_seller, _fetch_overrides)
 
     # Register callbacks with seller_id bound via partial
     listener.on_comment(functools.partial(_handle_comment, seller_id))
