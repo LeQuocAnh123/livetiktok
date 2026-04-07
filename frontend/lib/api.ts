@@ -274,8 +274,11 @@ export const api = {
   },
 
   analytics: {
-    get(): Promise<AnalyticsData> {
-      return request(`/api/v1/analytics/${qs({ seller_id: SELLER_ID })}`, {
+    get(params: { start_date?: string; end_date?: string } = {}): Promise<AnalyticsData> {
+      const queryParams: Record<string, string | number> = { seller_id: SELLER_ID };
+      if (params.start_date) queryParams.start_date = params.start_date;
+      if (params.end_date) queryParams.end_date = params.end_date;
+      return request(`/api/v1/analytics/${qs(queryParams)}`, {
         method: "GET",
       });
     },
