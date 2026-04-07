@@ -75,6 +75,11 @@ export default function MonitorPage() {
     error: (msg) => {
       toast.error(msg.message);
     },
+    alert: (msg) => {
+      if (msg.severity === "negative") {
+        toast.warning(`Negative sentiment from @${msg.user}: ${msg.comment.slice(0, 80)}`);
+      }
+    },
   });
 
   async function handleStart() {

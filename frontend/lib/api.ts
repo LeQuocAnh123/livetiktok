@@ -129,6 +129,79 @@ export interface AnalyticsData {
   sentiment_breakdown: Record<string, number>;
   unanswered_count: number;
   gift_stats: GiftStats | null;
+  // Deep analytics
+  sentiment_trend: SentimentTrendEntry[];
+  top_keywords_overall: KeywordEntry[];
+  session_list: SessionListEntry[];
+}
+
+// Deep analytics types
+export interface SentimentTrendEntry {
+  date: string;
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
+export interface KeywordEntry {
+  word: string;
+  count: number;
+}
+
+export interface SessionListEntry {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_minutes: number;
+  comment_count: number;
+  reply_count: number;
+  reply_rate: number;
+  gift_count: number;
+  gift_diamonds: number;
+  top_intent: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_minutes: number;
+}
+
+export interface SessionSummary {
+  total_comments: number;
+  total_replies: number;
+  reply_rate: number;
+  total_gifts: number;
+  total_diamonds: number;
+  estimated_usd: number;
+}
+
+export interface TimelineBucket {
+  bucket_start: string;
+  bucket_end: string;
+  comment_count: number;
+  reply_count: number;
+  gift_count: number;
+  gift_diamonds: number;
+}
+
+export interface EngagementMetrics {
+  product_inquiry_rate: number;
+  unique_commenters: number;
+  comments_per_minute_avg: number;
+  peak_minute: string | null;
+  peak_comments: number;
+}
+
+export interface SessionAnalyticsData {
+  session_info: SessionInfo;
+  summary: SessionSummary;
+  timeline: TimelineBucket[];
+  top_keywords: KeywordEntry[];
+  intent_breakdown: Record<string, number>;
+  sentiment_breakdown: Record<string, number>;
+  engagement_metrics: EngagementMetrics;
 }
 
 // Message log
@@ -323,6 +396,12 @@ export const api = {
   analytics: {
     get(params: { start_date?: string; end_date?: string } = {}): Promise<AnalyticsData> {
       return request(`/api/v1/analytics/${qs(params)}`, {
+        method: "GET",
+      });
+    },
+
+    session(sessionId: string): Promise<SessionAnalyticsData> {
+      return request(`/api/v1/analytics/sessions/${sessionId}`, {
         method: "GET",
       });
     },

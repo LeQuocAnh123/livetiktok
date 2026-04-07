@@ -23,6 +23,7 @@ export type WSMessage =
   | { type: "gift_reply"; gift_log_id: string; user: string; content: string }
   | { type: "status"; connected?: boolean; paused?: boolean; room_id?: number }
   | { type: "error"; message: string }
+  | { type: "alert"; severity: string; message_id: string; comment: string; user: string }
   | { type: "connection"; status: "connecting" | "connected" | "disconnected" | "reconnecting" };
 
 type Handler<T extends WSMessage = WSMessage> = (msg: T) => void;

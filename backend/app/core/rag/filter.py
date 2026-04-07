@@ -50,3 +50,11 @@ class CommentFilter:
     def reset_cooldown(self, user_id: str) -> None:
         """Remove user from cooldown map (e.g. for negative sentiment priority)."""
         self._cooldown_map.pop(user_id, None)
+
+    def seed_cooldowns(self, cooldown_map: dict[str, float]) -> None:
+        """Populate cooldown map from persisted data (e.g. MessageLog timestamps).
+
+        Used when restarting a session so cooldowns survive across restarts.
+        ``cooldown_map`` maps user_id → epoch timestamp of their last reply.
+        """
+        self._cooldown_map.update(cooldown_map)

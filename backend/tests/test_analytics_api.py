@@ -164,6 +164,16 @@ async def test_overview_includes_session_list(auth_client: AsyncClient, db_sessi
             sentiment="neutral",
             created_at=datetime(2026, 1, 1, 10, 10),
         ),
+        MessageLog(
+            id="ml3",
+            session_id="sess-list-1",
+            user_unique_id="u3",
+            comment="sản phẩm này còn không",
+            reply="còn ạ",
+            intent="product_inquiry",
+            sentiment="neutral",
+            created_at=datetime(2026, 1, 1, 10, 15),
+        ),
     ]
     gift = GiftLog(
         id="gl1",
@@ -188,9 +198,9 @@ async def test_overview_includes_session_list(auth_client: AsyncClient, db_sessi
     assert len(data["session_list"]) == 1
     s = data["session_list"][0]
     assert s["id"] == "sess-list-1"
-    assert s["comment_count"] == 2
-    assert s["reply_count"] == 1
-    assert s["reply_rate"] == 50.0
+    assert s["comment_count"] == 3
+    assert s["reply_count"] == 2
+    assert s["reply_rate"] == 66.7
     assert s["gift_count"] == 1
     assert s["gift_diamonds"] == 5
     assert s["top_intent"] == "product_inquiry"

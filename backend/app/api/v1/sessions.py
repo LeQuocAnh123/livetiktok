@@ -7,13 +7,14 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_seller
 from TikTokLive.client.client import TikTokLiveClient
 
 from app.api.ws import broadcast
+from app.config import get_settings
 from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.crypto import decrypt
 from app.core.rag import retriever
@@ -160,7 +161,7 @@ async def _handle_gift(
         return
 
     total_diamonds = diamond_count * repeat_count
-    estimated_usd = total_diamonds * 0.005
+    estimated_usd = total_diamonds * get_settings().diamond_to_usd_rate
 
     # 1. Save GiftLog to DB
     gift_log_id: str | None = None
@@ -313,6 +314,37 @@ async def start_session(
     state.active_pipeline = pipeline
     state.bot_paused = False
     state.reply_count = 0
+
+    # Seed cooldowns from most recent session's reply timestamps
+    # so cooldowns survive across session restarts
+    last_session_result = await db.execute(
+        select(LiveSession.id)
+        .where(
+            LiveSession.seller_id == seller_id,
+            LiveSession.id != live_session.id,
+        )
+        .order_by(LiveSession.started_at.desc())
+        .limit(1)
+    )
+    prev_session_id = last_session_result.scalar_one_or_none()
+    if prev_session_id:
+        cooldown_rows = await db.execute(
+            select(
+                MessageLog.user_unique_id,
+                func.max(MessageLog.created_at),
+            )
+            .where(
+                MessageLog.session_id == prev_session_id,
+                MessageLog.reply.isnot(None),
+            )
+            .group_by(MessageLog.user_unique_id)
+        )
+        cooldown_map: dict[str, float] = {}
+        for user_uid, last_ts in cooldown_rows.all():
+            cooldown_map[user_uid] = last_ts.timestamp()
+        if cooldown_map:
+            pipeline._filter.seed_cooldowns(cooldown_map)
+            logger.info("Seeded %d cooldowns from previous session", len(cooldown_map))
 
     # Start listener in background (non-blocking)
     task = asyncio.create_task(listener.start(), name=f"tiktok-listener-{seller_id}")

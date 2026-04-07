@@ -6,6 +6,9 @@ import { IntentBreakdown } from "@/components/analytics/IntentBreakdown";
 import { UnansweredSummary } from "@/components/analytics/UnansweredSummary";
 import { DateRangeFilter } from "@/components/analytics/DateRangeFilter";
 import { GiftStatsSection } from "@/components/analytics/GiftStats";
+import { SentimentTrend } from "@/components/analytics/SentimentTrend";
+import { KeywordCloud } from "@/components/analytics/KeywordCloud";
+import { SessionList } from "@/components/analytics/SessionList";
 import { api, type AnalyticsData } from "@/lib/api";
 
 export default function AnalyticsPage() {
@@ -89,6 +92,14 @@ export default function AnalyticsPage() {
               <GiftStatsSection stats={data.gift_stats} />
             </div>
           )}
+
+          {/* Deep Analytics sections */}
+          <SentimentTrend data={data.sentiment_trend} />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <KeywordCloud keywords={data.top_keywords_overall} />
+            <div /> {/* Placeholder for visual balance */}
+          </div>
+          <SessionList sessions={data.session_list} />
         </div>
       )}
     </div>

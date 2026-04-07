@@ -1,6 +1,6 @@
 """Keyword extraction from comment lists.
 
-Uses regex tokenization + Vietnamese stopword filtering.
+Uses regex tokenization + Vietnamese & English stopword filtering.
 No external NLP dependencies.
 """
 
@@ -145,6 +145,153 @@ VIETNAMESE_STOPWORDS: frozenset[str] = frozenset(
     }
 )
 
+# Common English stopwords + TikTok loanwords that appear in Vietnamese streams
+ENGLISH_STOPWORDS: frozenset[str] = frozenset(
+    {
+        # Articles & determiners
+        "the",
+        "an",
+        "this",
+        "that",
+        "these",
+        "those",
+        # Pronouns
+        "he",
+        "she",
+        "it",
+        "we",
+        "you",
+        "they",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
+        "my",
+        "your",
+        "his",
+        "its",
+        "our",
+        "their",
+        "mine",
+        "yours",
+        "ours",
+        "theirs",
+        "who",
+        "whom",
+        "which",
+        "what",
+        "whose",
+        # Prepositions
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "up",
+        "about",
+        "into",
+        "over",
+        "after",
+        "before",
+        "between",
+        "under",
+        "above",
+        "out",
+        # Conjunctions
+        "and",
+        "but",
+        "or",
+        "nor",
+        "so",
+        "yet",
+        "both",
+        "either",
+        "neither",
+        # Auxiliary/common verbs
+        "is",
+        "am",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "may",
+        "might",
+        "can",
+        "could",
+        "must",
+        # Adverbs & misc
+        "not",
+        "no",
+        "yes",
+        "very",
+        "too",
+        "also",
+        "just",
+        "only",
+        "more",
+        "most",
+        "here",
+        "there",
+        "when",
+        "where",
+        "how",
+        "why",
+        "all",
+        "each",
+        "every",
+        "some",
+        "any",
+        "few",
+        "many",
+        "much",
+        "other",
+        "another",
+        "such",
+        "than",
+        "then",
+        "now",
+        "even",
+        "still",
+        "already",
+        "if",
+        # TikTok loanwords commonly used in Vietnamese streams
+        "live",
+        "like",
+        "share",
+        "follow",
+        "sub",
+        "ok",
+        "yeah",
+        "hello",
+        "hi",
+        "bye",
+        "thank",
+        "thanks",
+        "please",
+        "sorry",
+        "love",
+    }
+)
+
+STOPWORDS: frozenset[str] = VIETNAMESE_STOPWORDS | ENGLISH_STOPWORDS
+
 _TOKEN_RE = re.compile(r"[a-zA-ZÀ-ỹ0-9]+", re.UNICODE)
 
 
@@ -166,7 +313,7 @@ def extract_keywords(comments: list[str], top_n: int = 20) -> list[dict[str, int
     for comment in comments:
         tokens = _TOKEN_RE.findall(comment.lower())
         for token in tokens:
-            if len(token) >= 2 and token not in VIETNAMESE_STOPWORDS:
+            if len(token) >= 2 and token not in STOPWORDS:
                 counter[token] += 1
 
     return [{"word": word, "count": count} for word, count in counter.most_common(top_n)]

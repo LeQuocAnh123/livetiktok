@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = ""  # Required in production
     jwt_expire_hours: int = 24
+    cookie_secure: bool = False  # Set to True in production with HTTPS
+
+    # Gift conversion
+    diamond_to_usd_rate: float = 0.005
 
     # CORS - comma-separated list of allowed origins
     cors_origins: str = "http://localhost:3000"

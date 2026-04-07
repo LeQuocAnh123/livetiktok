@@ -204,40 +204,65 @@ async def get_analytics(
     top_keywords_overall = [KeywordEntry(**kw) for kw in kw_results]
 
     # ── NEW: Session list (per-session summaries) ─────────────────────────────
+    # Batch queries to avoid N+1
     sessions_result = await db.execute(
         select(LiveSession).where(session_filter).order_by(LiveSession.started_at.desc())
     )
     sessions = sessions_result.scalars().all()
+    session_ids = [s.id for s in sessions]
+
+    # Batch 1: message counts per session (comment_count, reply_count)
+    msg_stats: dict[str, tuple[int, int]] = {}
+    if session_ids:
+        msg_rows = await db.execute(
+            select(
+                MessageLog.session_id,
+                func.count(MessageLog.id),
+                func.count(MessageLog.reply),
+            )
+            .where(MessageLog.session_id.in_(session_ids))
+            .group_by(MessageLog.session_id)
+        )
+        for sid, comment_count, reply_count in msg_rows.all():
+            msg_stats[sid] = (comment_count, reply_count)
+
+    # Batch 2: top intent per session (via window function emulation)
+    top_intents: dict[str, str] = {}
+    if session_ids:
+        intent_rows = await db.execute(
+            select(
+                MessageLog.session_id,
+                MessageLog.intent,
+                func.count(MessageLog.id).label("cnt"),
+            )
+            .where(MessageLog.session_id.in_(session_ids))
+            .group_by(MessageLog.session_id, MessageLog.intent)
+            .order_by(func.count(MessageLog.id).desc(), MessageLog.intent.asc())
+        )
+        for sid, intent, _cnt in intent_rows.all():
+            if sid not in top_intents:
+                top_intents[sid] = intent
+
+    # Batch 3: gift stats per session
+    gift_stats_map: dict[str, tuple[int, int]] = {}
+    if session_ids:
+        gift_rows = await db.execute(
+            select(
+                GiftLog.session_id,
+                func.count(GiftLog.id),
+                func.coalesce(func.sum(GiftLog.total_diamonds), 0),
+            )
+            .where(GiftLog.session_id.in_(session_ids))
+            .group_by(GiftLog.session_id)
+        )
+        for sid, g_count, g_diamonds in gift_rows.all():
+            gift_stats_map[sid] = (g_count, int(g_diamonds))
 
     session_list: list[SessionListEntry] = []
     for sess in sessions:
-        s_msg_rows = await db.execute(
-            select(
-                func.count(MessageLog.id),
-                func.count(MessageLog.reply),
-            ).where(MessageLog.session_id == sess.id)
-        )
-        s_msg = s_msg_rows.one()
-        s_comment_count = s_msg[0]
-        s_reply_count = s_msg[1]
-
-        s_intent_rows = await db.execute(
-            select(MessageLog.intent, func.count(MessageLog.id))
-            .where(MessageLog.session_id == sess.id)
-            .group_by(MessageLog.intent)
-            .order_by(func.count(MessageLog.id).desc())
-            .limit(1)
-        )
-        s_top_intent_row = s_intent_rows.first()
-        s_top_intent = s_top_intent_row[0] if s_top_intent_row else "none"
-
-        s_gift_rows = await db.execute(
-            select(
-                func.count(GiftLog.id),
-                func.coalesce(func.sum(GiftLog.total_diamonds), 0),
-            ).where(GiftLog.session_id == sess.id)
-        )
-        s_gift = s_gift_rows.one()
+        s_comment_count, s_reply_count = msg_stats.get(sess.id, (0, 0))
+        s_top_intent = top_intents.get(sess.id, "none")
+        s_gift_count, s_gift_diamonds = gift_stats_map.get(sess.id, (0, 0))
 
         duration_minutes = 0.0
         if sess.ended_at and sess.started_at:
@@ -256,8 +281,8 @@ async def get_analytics(
                 comment_count=s_comment_count,
                 reply_count=s_reply_count,
                 reply_rate=s_reply_rate,
-                gift_count=s_gift[0],
-                gift_diamonds=int(s_gift[1]),
+                gift_count=s_gift_count,
+                gift_diamonds=s_gift_diamonds,
                 top_intent=s_top_intent,
             )
         )
