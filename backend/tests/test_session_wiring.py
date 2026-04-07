@@ -1,8 +1,10 @@
-"""Integration tests for session start/stop/history wiring."""
+"""Integration tests for session start/stop/status with multi-tenant auth."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from app.core.ai.base import LLMResult
 
 
 async def test_start_session_creates_live_session(auth_client, test_seller):
@@ -14,15 +16,20 @@ async def test_start_session_creates_live_session(auth_client, test_seller):
         patch("app.api.v1.sessions.get_reply_provider") as mock_reply_factory,
         patch("app.api.v1.sessions.asyncio.create_task"),
     ):
-        mock_client = MagicMock()
-        mock_client.web = MagicMock()
-        mock_tiktok_cls.return_value = mock_client
+        mock_tiktok = MagicMock()
+        mock_tiktok.web = MagicMock()
+        mock_tiktok_cls.return_value = mock_tiktok
+
         mock_listener = MagicMock()
-        mock_listener.on_comment = MagicMock()
-        mock_listener.on_disconnect = MagicMock()
+        mock_listener.start = AsyncMock()
         mock_listener_cls.return_value = mock_listener
+
         mock_embed_factory.return_value = AsyncMock()
-        mock_reply_factory.return_value = AsyncMock()
+        mock_reply_provider = AsyncMock()
+        mock_reply_provider.generate_reply = AsyncMock(
+            return_value=LLMResult(intent="greeting", sentiment="neutral", reply="Chào!")
+        )
+        mock_reply_factory.return_value = mock_reply_provider
 
         # No body needed - seller_id comes from JWT
         resp = await auth_client.post("/api/v1/sessions/start")
@@ -39,15 +46,19 @@ async def test_start_session_twice_returns_400(auth_client, test_seller):
     with (
         patch("app.api.v1.sessions.TikTokLiveClient") as mock_tiktok_cls,
         patch("app.api.v1.sessions.LiveListener") as mock_listener_cls,
-        patch("app.api.v1.sessions.get_embed_provider"),
-        patch("app.api.v1.sessions.get_reply_provider"),
+        patch("app.api.v1.sessions.get_embed_provider") as mock_embed_factory,
+        patch("app.api.v1.sessions.get_reply_provider") as mock_reply_factory,
         patch("app.api.v1.sessions.asyncio.create_task"),
     ):
-        mock_client = MagicMock()
-        mock_client.web = MagicMock()
-        mock_tiktok_cls.return_value = mock_client
+        mock_tiktok = MagicMock()
+        mock_tiktok.web = MagicMock()
+        mock_tiktok_cls.return_value = mock_tiktok
+
         mock_listener = MagicMock()
         mock_listener_cls.return_value = mock_listener
+
+        mock_embed_factory.return_value = AsyncMock()
+        mock_reply_factory.return_value = AsyncMock()
 
         await auth_client.post("/api/v1/sessions/start")
         resp2 = await auth_client.post("/api/v1/sessions/start")
@@ -60,16 +71,20 @@ async def test_stop_session(auth_client, test_seller):
     with (
         patch("app.api.v1.sessions.TikTokLiveClient") as mock_tiktok_cls,
         patch("app.api.v1.sessions.LiveListener") as mock_listener_cls,
-        patch("app.api.v1.sessions.get_embed_provider"),
-        patch("app.api.v1.sessions.get_reply_provider"),
+        patch("app.api.v1.sessions.get_embed_provider") as mock_embed_factory,
+        patch("app.api.v1.sessions.get_reply_provider") as mock_reply_factory,
         patch("app.api.v1.sessions.asyncio.create_task"),
     ):
-        mock_client = MagicMock()
-        mock_client.web = MagicMock()
-        mock_tiktok_cls.return_value = mock_client
+        mock_tiktok = MagicMock()
+        mock_tiktok.web = MagicMock()
+        mock_tiktok_cls.return_value = mock_tiktok
+
         mock_listener = MagicMock()
         mock_listener.stop = AsyncMock()
         mock_listener_cls.return_value = mock_listener
+
+        mock_embed_factory.return_value = AsyncMock()
+        mock_reply_factory.return_value = AsyncMock()
 
         await auth_client.post("/api/v1/sessions/start")
 

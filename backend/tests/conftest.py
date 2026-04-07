@@ -9,6 +9,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.core.security import hash_password
 from app.database import Base, get_db
 
+# Import all models so Base.metadata knows about every table before create_all
+import app.models.seller  # noqa: F401
+import app.models.session  # noqa: F401
+import app.models.message  # noqa: F401
+
 _TEST_SELLER_ID = "test-seller-001"
 
 
