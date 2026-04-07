@@ -17,6 +17,7 @@ from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.crypto import decrypt
 from app.core.rag import retriever
 from app.core.rag.pipeline import RAGPipeline
+from app.core.session_state import session_state
 from app.core.tiktok.listener import LiveListener
 from app.core.tiktok.replier import Replier
 from app.database import get_db, get_session_factory
@@ -32,15 +33,6 @@ from app.schemas.session import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
-
-# ── Module-level single-seller state ────────────────────────────────────────
-_active_session_id: str | None = None
-_active_listener: LiveListener | None = None
-_active_replier: Replier | None = None
-_active_pipeline: RAGPipeline | None = None
-_active_task: asyncio.Task | None = None
-_bot_paused: bool = False
-_reply_count: int = 0
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
@@ -60,13 +52,13 @@ def _build_pipeline(seller: Seller) -> RAGPipeline:
 
 async def _handle_comment(user: str, text: str) -> None:
     """Background callback: filter → RAG → save → reply → broadcast."""
-    global _reply_count
+    state = session_state
 
-    if _bot_paused or _active_pipeline is None or _active_session_id is None:
+    if state.bot_paused or state.active_pipeline is None or state.active_session_id is None:
         return
 
-    max_replies = _active_pipeline.seller_settings.get("max_replies_per_session", 500)
-    if _reply_count >= max_replies:
+    max_replies = state.active_pipeline.seller_settings.get("max_replies_per_session", 500)
+    if state.reply_count >= max_replies:
         logger.info("max_replies_per_session reached (%d), skipping", max_replies)
         return
 
@@ -74,7 +66,7 @@ async def _handle_comment(user: str, text: str) -> None:
     message_id: str | None = None
     async with get_session_factory()() as db:
         msg = MessageLog(
-            session_id=_active_session_id,
+            session_id=state.active_session_id,
             user_unique_id=user,
             comment=text,
             intent="unknown",
@@ -97,7 +89,7 @@ async def _handle_comment(user: str, text: str) -> None:
     )
 
     # Run RAG pipeline
-    result = await _active_pipeline.process(user, text)
+    result = await state.active_pipeline.process(user, text)
 
     if result.skipped or result.reply is None:
         async with get_session_factory()() as db:
@@ -109,9 +101,9 @@ async def _handle_comment(user: str, text: str) -> None:
 
     # Send reply via replier (with throttle)
     try:
-        if _active_replier is not None:
-            await _active_replier.send(result.reply)
-        _reply_count += 1
+        if state.active_replier is not None:
+            await state.active_replier.send(result.reply)
+        state.reply_count += 1
     except Exception:
         logger.exception("Failed to send TikTok reply")
 
@@ -138,13 +130,12 @@ async def _handle_comment(user: str, text: str) -> None:
 
 async def _handle_disconnect() -> None:
     """Callback when TikTok stream ends or connection drops."""
-    global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
-    global _bot_paused, _reply_count
+    state = session_state
 
     logger.info("TikTok disconnect — marking session ended")
-    if _active_session_id:
+    if state.active_session_id:
         async with get_session_factory()() as db:
-            session = await db.get(LiveSession, _active_session_id)
+            session = await db.get(LiveSession, state.active_session_id)
             if session:
                 session.status = SessionStatus.ENDED
                 session.ended_at = datetime.now(timezone.utc)
@@ -152,13 +143,7 @@ async def _handle_disconnect() -> None:
 
     await broadcast({"type": "status", "connected": False})
 
-    _active_session_id = None
-    _active_listener = None
-    _active_replier = None
-    _active_pipeline = None
-    _active_task = None
-    _bot_paused = False
-    _reply_count = 0
+    state.reset()
 
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
@@ -170,10 +155,9 @@ async def start_session(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(get_current_user),
 ) -> SessionStatusResponse:
-    global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
-    global _bot_paused, _reply_count
+    state = session_state
 
-    if _active_session_id is not None:
+    if state.active_session_id is not None:
         raise HTTPException(status_code=400, detail="A session is already active. Stop it first.")
 
     seller = await db.get(Seller, body.seller_id)
@@ -208,12 +192,12 @@ async def start_session(
     await db.refresh(live_session)
 
     # Store state
-    _active_session_id = live_session.id
-    _active_listener = listener
-    _active_replier = replier
-    _active_pipeline = pipeline
-    _bot_paused = False
-    _reply_count = 0
+    state.active_session_id = live_session.id
+    state.active_listener = listener
+    state.active_replier = replier
+    state.active_pipeline = pipeline
+    state.bot_paused = False
+    state.reply_count = 0
 
     # Start listener in background (non-blocking)
     task = asyncio.create_task(listener.start(), name="tiktok-listener")
@@ -224,7 +208,7 @@ async def start_session(
             else None
         )
     )
-    _active_task = task
+    state.active_task = task
 
     await broadcast({"type": "status", "connected": True, "room_id": None})
     logger.info("Session started: %s", live_session.id)
@@ -239,34 +223,27 @@ async def stop_session(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(get_current_user),
 ) -> dict[str, str]:
-    global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
-    global _bot_paused, _reply_count
+    state = session_state
 
-    if _active_session_id is None:
+    if state.active_session_id is None:
         raise HTTPException(status_code=400, detail="No active session")
 
-    if _active_task is not None and not _active_task.done():
-        _active_task.cancel()
+    if state.active_task is not None and not state.active_task.done():
+        state.active_task.cancel()
 
-    if _active_listener is not None:
+    if state.active_listener is not None:
         try:
-            await _active_listener.stop()
+            await state.active_listener.stop()
         except Exception:
             logger.exception("Error stopping listener")
 
-    session = await db.get(LiveSession, _active_session_id)
+    session = await db.get(LiveSession, state.active_session_id)
     if session:
         session.status = SessionStatus.ENDED
         session.ended_at = datetime.now(timezone.utc)
         await db.commit()
 
-    _active_session_id = None
-    _active_listener = None
-    _active_replier = None
-    _active_pipeline = None
-    _active_task = None
-    _bot_paused = False
-    _reply_count = 0
+    state.reset()
 
     await broadcast({"type": "status", "connected": False})
     return {"message": "Session stopped"}
@@ -277,10 +254,12 @@ async def get_status(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(get_current_user),
 ) -> SessionStatusResponse:
-    if _active_session_id is None:
+    state = session_state
+
+    if state.active_session_id is None:
         return SessionStatusResponse(connected=False, session=None)
 
-    result = await db.execute(select(LiveSession).where(LiveSession.id == _active_session_id))
+    result = await db.execute(select(LiveSession).where(LiveSession.id == state.active_session_id))
     session = result.scalar_one_or_none()
     if session is None or session.status != SessionStatus.ACTIVE:
         return SessionStatusResponse(connected=False, session=None)

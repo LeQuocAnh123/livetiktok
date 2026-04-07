@@ -4,6 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.session_state import session_state
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -53,15 +55,11 @@ async def websocket_monitor(websocket: WebSocket):
             logger.info("WS command received: %s", msg_type)
 
             if msg_type == "pause_bot":
-                import app.api.v1.sessions as sessions_module
-
-                sessions_module._bot_paused = True
+                session_state.bot_paused = True
                 await broadcast({"type": "status", "paused": True})
 
             elif msg_type == "resume_bot":
-                import app.api.v1.sessions as sessions_module
-
-                sessions_module._bot_paused = False
+                session_state.bot_paused = False
                 await broadcast({"type": "status", "paused": False})
 
             elif msg_type == "manual_reply":
@@ -79,7 +77,6 @@ async def websocket_monitor(websocket: WebSocket):
 
 async def _handle_manual_reply(msg: dict) -> None:
     """Send a manual reply for a specific message_id via the active replier."""
-    import app.api.v1.sessions as sessions_module
     from app.database import get_session_factory
     from app.models.message import MessageLog
 
@@ -90,7 +87,7 @@ async def _handle_manual_reply(msg: dict) -> None:
         logger.warning("manual_reply missing message_id or content")
         return
 
-    replier = sessions_module._active_replier
+    replier = session_state.active_replier
     if replier is None:
         await broadcast({"type": "error", "message": "No active session"})
         return

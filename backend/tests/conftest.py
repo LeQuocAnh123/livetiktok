@@ -79,22 +79,9 @@ async def seller_id(db_session) -> str:
 
 @pytest.fixture(autouse=True)
 def reset_session_state():
-    """Reset all module-level session state between tests."""
-    import app.api.v1.sessions as sessions_module
+    """Reset all session state between tests."""
+    from app.core.session_state import session_state
 
-    # Reset all Plan 1 + Plan 2 globals
-    sessions_module._active_session_id = None
-    sessions_module._active_listener = None
-    sessions_module._active_replier = None
-    sessions_module._active_pipeline = None
-    sessions_module._active_task = None
-    sessions_module._bot_paused = False
-    sessions_module._reply_count = 0
+    session_state.reset()
     yield
-    sessions_module._active_session_id = None
-    sessions_module._active_listener = None
-    sessions_module._active_replier = None
-    sessions_module._active_pipeline = None
-    sessions_module._active_task = None
-    sessions_module._bot_paused = False
-    sessions_module._reply_count = 0
+    session_state.reset()
