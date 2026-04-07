@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { WSClient } from "@/lib/ws";
 
 // ── Mock WebSocket ───────────────────────────────────────────────────────────
 class MockWebSocket {
@@ -9,110 +10,115 @@ class MockWebSocket {
 
   readyState = MockWebSocket.CONNECTING;
   onopen: (() => void) | null = null;
-  onclose: ((e: { code: number }) => void) | null = null;
-  onmessage: ((e: { data: string }) => void) | null = null;
-  onerror: ((e: Event) => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
+  onerror: (() => void) | null = null;
 
-  sentMessages: string[] = [];
-
-  constructor(public url: string) {
+  constructor(_url: string) {
     setTimeout(() => {
       this.readyState = MockWebSocket.OPEN;
       this.onopen?.();
     }, 0);
   }
 
-  send(data: string) {
-    this.sentMessages.push(data);
-  }
+  send = vi.fn();
 
   close(code = 1000) {
     this.readyState = MockWebSocket.CLOSED;
     this.onclose?.({ code });
   }
-
-  // Test helper: simulate receiving a server message
-  receive(msg: object) {
-    this.onmessage?.({ data: JSON.stringify(msg) });
-  }
 }
 
 vi.stubGlobal("WebSocket", MockWebSocket);
 
-// Re-import after stubbing
-const { wsClient } = await import("@/lib/ws");
+describe("WSClient", () => {
+  let wsClient: WSClient;
+  let mockWS: MockWebSocket;
 
-let mockWS: MockWebSocket;
-
-beforeEach(async () => {
-  wsClient.disconnect();
-  wsClient.connect("ws://localhost:8000/ws/monitor");
-  // Wait for async open
-  await new Promise((r) => setTimeout(r, 10));
-  // Grab the internal WS instance for test helpers
-  mockWS = wsClient._ws as unknown as MockWebSocket;
-});
-
-afterEach(() => {
-  wsClient.disconnect();
-});
-
-describe("wsClient.connect", () => {
-  it("opens connection to the given URL", () => {
-    expect(mockWS.url).toContain("ws://localhost:8000/ws/monitor");
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsClient = new WSClient();
+    wsClient.connect("ws://localhost:8000/ws/monitor");
+    mockWS = wsClient._ws as unknown as MockWebSocket;
   });
-});
 
-describe("wsClient.on / event dispatch", () => {
-  it("calls registered listener when message of matching type arrives", async () => {
+  afterEach(() => {
+    wsClient.disconnect();
+    vi.useRealTimers();
+  });
+
+  it("connects to the WebSocket server", async () => {
+    await vi.runAllTimersAsync();
+    expect(mockWS.readyState).toBe(MockWebSocket.OPEN);
+  });
+
+  it("emits connection status on connect", async () => {
+    const handler = vi.fn();
+    wsClient.on("connection", handler);
+    await vi.runAllTimersAsync();
+    expect(handler).toHaveBeenCalledWith({ type: "connection", status: "connected" });
+  });
+
+  it("dispatches messages to registered handlers", async () => {
+    await vi.runAllTimersAsync();
     const handler = vi.fn();
     wsClient.on("comment", handler);
-    mockWS.receive({
-      type: "comment",
-      message_id: "m1",
-      user: "alice",
-      content: "hello",
-      timestamp: "2026-01-01T00:00:00Z",
-    });
-    expect(handler).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "comment", user: "alice" })
-    );
-    wsClient.off("comment", handler);
+
+    const msg = { type: "comment", message_id: "1", user: "u", content: "hi", timestamp: "" };
+    mockWS.onmessage?.({ data: JSON.stringify(msg) });
+
+    expect(handler).toHaveBeenCalledWith(msg);
   });
 
-  it("does not call listener after off()", () => {
+  it("unsubscribes handler when calling returned function", async () => {
+    await vi.runAllTimersAsync();
     const handler = vi.fn();
-    wsClient.on("comment", handler);
-    wsClient.off("comment", handler);
-    mockWS.receive({
-      type: "comment",
-      message_id: "m2",
-      user: "bob",
-      content: "hi",
-      timestamp: "",
-    });
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it("on() returns an unsubscribe function", () => {
-    const handler = vi.fn();
-    const unsub = wsClient.on("status", handler);
+    const unsub = wsClient.on("comment", handler);
     unsub();
-    mockWS.receive({ type: "status", connected: true });
+
+    const msg = { type: "comment", message_id: "1", user: "u", content: "hi", timestamp: "" };
+    mockWS.onmessage?.({ data: JSON.stringify(msg) });
+
     expect(handler).not.toHaveBeenCalled();
   });
-});
 
-describe("wsClient.send", () => {
-  it("serializes and sends a command message", () => {
-    wsClient.send({ type: "pause_bot" });
-    expect(mockWS.sentMessages).toContain(JSON.stringify({ type: "pause_bot" }));
+  it("sends messages when connected", async () => {
+    await vi.runAllTimersAsync();
+    const result = wsClient.send({ type: "pause_bot" });
+    expect(result).toBe(true);
+    expect(mockWS.send).toHaveBeenCalledWith('{"type":"pause_bot"}');
   });
-});
 
-describe("wsClient.disconnect", () => {
-  it("closes the WebSocket connection", () => {
+  it("returns false when sending while disconnected", () => {
+    wsClient.disconnect();
+    const result = wsClient.send({ type: "pause_bot" });
+    expect(result).toBe(false);
+  });
+
+  it("closes the WebSocket connection", async () => {
+    await vi.runAllTimersAsync();
     wsClient.disconnect();
     expect(mockWS.readyState).toBe(MockWebSocket.CLOSED);
+  });
+
+  it("does not auto-reconnect after manual disconnect", async () => {
+    await vi.runAllTimersAsync();
+    wsClient.disconnect();
+
+    // Advance timers - should not reconnect
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(wsClient._ws).toBeNull();
+  });
+
+  it("schedules reconnect on abnormal close", async () => {
+    await vi.runAllTimersAsync();
+    const connectionHandler = vi.fn();
+    wsClient.on("connection", connectionHandler);
+
+    // Simulate abnormal close
+    mockWS.onclose?.({ code: 1006 });
+
+    expect(connectionHandler).toHaveBeenCalledWith({ type: "connection", status: "disconnected" });
+    expect(connectionHandler).toHaveBeenCalledWith({ type: "connection", status: "reconnecting" });
   });
 });
