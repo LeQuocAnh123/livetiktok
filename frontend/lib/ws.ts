@@ -1,4 +1,4 @@
-// lib/ws.ts — WebSocket singleton client
+// lib/ws.ts — WebSocket singleton client with auto-reconnect
 
 export type WSMessage =
   | {
@@ -10,7 +10,8 @@ export type WSMessage =
     }
   | { type: "reply"; message_id: string; content: string; intent: string; chunks_used: string[] }
   | { type: "status"; connected?: boolean; paused?: boolean; room_id?: number }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "connection"; status: "connecting" | "connected" | "disconnected" | "reconnecting" };
 
 type Handler<T extends WSMessage = WSMessage> = (msg: T) => void;
 
@@ -19,16 +20,35 @@ export type SendMessage =
   | { type: "resume_bot" }
   | { type: "manual_reply"; message_id: string; content: string };
 
+const MAX_RETRIES = 10;
+const BASE_DELAY_MS = 1000;
+const MAX_DELAY_MS = 16000;
+
 export class WSClient {
-  // Intentionally public (no underscore-private) so test code can inspect or
-  // stub the underlying socket without resorting to `as any` casts.
   _ws: WebSocket | null = null;
   private _listeners: Map<string, Set<Handler>> = new Map();
+  private _url: string = "";
+  private _reconnectAttempt: number = 0;
+  private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private _manualDisconnect: boolean = false;
 
   connect(url: string): void {
     if (this._ws && this._ws.readyState <= WebSocket.OPEN) return;
 
-    this._ws = new WebSocket(url);
+    this._url = url;
+    this._manualDisconnect = false;
+    this._doConnect();
+  }
+
+  private _doConnect(): void {
+    this._emit({ type: "connection", status: "connecting" });
+
+    this._ws = new WebSocket(this._url);
+
+    this._ws.onopen = () => {
+      this._reconnectAttempt = 0;
+      this._emit({ type: "connection", status: "connected" });
+    };
 
     this._ws.onmessage = (event: MessageEvent) => {
       let msg: WSMessage;
@@ -37,18 +57,59 @@ export class WSClient {
       } catch {
         return;
       }
-      const handlers = this._listeners.get(msg.type);
-      if (handlers) {
-        handlers.forEach((h) => h(msg));
-      }
+      this._emit(msg);
     };
 
     this._ws.onerror = () => {
       // Suppress — onclose will follow
     };
+
+    this._ws.onclose = (event) => {
+      this._emit({ type: "connection", status: "disconnected" });
+
+      // Don't reconnect if manually disconnected or normal close
+      if (this._manualDisconnect || event.code === 1000) {
+        return;
+      }
+
+      this._scheduleReconnect();
+    };
+  }
+
+  private _scheduleReconnect(): void {
+    if (this._reconnectAttempt >= MAX_RETRIES) {
+      this._emit({ type: "error", message: "Max reconnection attempts reached" });
+      return;
+    }
+
+    const delay = Math.min(
+      BASE_DELAY_MS * Math.pow(2, this._reconnectAttempt),
+      MAX_DELAY_MS
+    );
+
+    this._reconnectAttempt++;
+    this._emit({ type: "connection", status: "reconnecting" });
+
+    this._reconnectTimer = setTimeout(() => {
+      this._doConnect();
+    }, delay);
+  }
+
+  private _emit(msg: WSMessage): void {
+    const handlers = this._listeners.get(msg.type);
+    if (handlers) {
+      handlers.forEach((h) => h(msg));
+    }
   }
 
   disconnect(): void {
+    this._manualDisconnect = true;
+
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+
     if (this._ws) {
       this._ws.close(1000);
       this._ws = null;
