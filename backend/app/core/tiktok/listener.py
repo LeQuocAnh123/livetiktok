@@ -5,16 +5,20 @@ from typing import Callable
 
 from TikTokLive.client.client import TikTokLiveClient
 from TikTokLive.events.custom_events import DisconnectEvent, LiveEndEvent
-from TikTokLive.events.proto_events import CommentEvent
+from TikTokLive.events.proto_events import CommentEvent, GiftEvent
 
 logger = logging.getLogger(__name__)
 
-CommentHandler = Callable[[str, str], None]   # (user_unique_id, comment_text)
+CommentHandler = Callable[[str, str], None]  # (user_unique_id, comment_text)
+GiftHandler = Callable[
+    [str, str, int, int], None
+]  # (user_unique_id, gift_name, diamond_count, repeat_count)
 DisconnectHandler = Callable[[], None]
 
 
 class ListenerEvent(str, Enum):
     COMMENT = "comment"
+    GIFT = "gift"
     DISCONNECT = "disconnect"
 
 
@@ -27,6 +31,7 @@ class LiveListener:
     def __init__(self, client: TikTokLiveClient) -> None:
         self._client = client
         self._comment_handlers: list[CommentHandler] = []
+        self._gift_handlers: list[GiftHandler] = []
         self._disconnect_handlers: list[DisconnectHandler] = []
         self._register_events()
 
@@ -34,6 +39,10 @@ class LiveListener:
         @self._client.on(CommentEvent)
         async def on_comment(event: CommentEvent):
             await self._handle_comment_event(event)
+
+        @self._client.on(GiftEvent)
+        async def on_gift(event: GiftEvent):
+            await self._handle_gift_event(event)
 
         @self._client.on(DisconnectEvent)
         async def on_disconnect(event: DisconnectEvent):
@@ -57,6 +66,39 @@ class LiveListener:
             except Exception:
                 logger.exception("Comment handler error")
 
+    async def _handle_gift_event(self, event) -> None:
+        """Handle incoming gift events with streak filtering.
+
+        Only dispatches when:
+        - Gift is not streakable (single gift), OR
+        - Gift is streakable and streak has ended (streaking=False / repeat_end=True)
+        """
+        # Skip mid-streak events
+        if event.gift.streakable and event.streaking:
+            logger.debug("Skipping mid-streak gift from %s", event.user.unique_id)
+            return
+
+        user = event.user.unique_id
+        gift_name = event.gift.name
+        diamond_count = event.gift.diamond_count
+        repeat_count = event.repeat_count
+
+        logger.info(
+            "Gift from %s: %dx %s (%d diamonds each)",
+            user,
+            repeat_count,
+            gift_name,
+            diamond_count,
+        )
+
+        for handler in self._gift_handlers:
+            try:
+                result = handler(user, gift_name, diamond_count, repeat_count)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception("Gift handler error")
+
     async def _handle_disconnect_event(self, event) -> None:
         logger.info("Disconnect event received")
         for handler in self._disconnect_handlers:
@@ -69,6 +111,9 @@ class LiveListener:
 
     def on_comment(self, handler: CommentHandler) -> None:
         self._comment_handlers.append(handler)
+
+    def on_gift(self, handler: GiftHandler) -> None:
+        self._gift_handlers.append(handler)
 
     def on_disconnect(self, handler: DisconnectHandler) -> None:
         self._disconnect_handlers.append(handler)
