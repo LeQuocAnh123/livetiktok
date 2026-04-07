@@ -1,13 +1,15 @@
 """Analytics API — aggregated stats for a seller."""
 
+from collections import Counter
 from datetime import date, datetime, time
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_seller
 from app.core.analytics.keywords import extract_keywords
+from app.core.analytics.timeline import compute_timeline
 from app.database import get_db
 from app.models.gift import GiftLog
 from app.models.message import MessageLog
@@ -15,9 +17,14 @@ from app.models.seller import Seller
 from app.models.session import LiveSession
 from app.schemas.analytics import (
     AnalyticsResponse,
+    EngagementMetrics,
     KeywordEntry,
     SentimentTrendEntry,
+    SessionAnalyticsResponse,
+    SessionInfo,
     SessionListEntry,
+    SessionSummary,
+    TimelineBucketSchema,
 )
 from app.schemas.gift import GiftBreakdown, GiftStats, TopGifter
 
@@ -267,4 +274,135 @@ async def get_analytics(
         sentiment_trend=sentiment_trend,
         top_keywords_overall=top_keywords_overall,
         session_list=session_list,
+    )
+
+
+@router.get("/sessions/{session_id}", response_model=SessionAnalyticsResponse)
+async def get_session_analytics(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_seller: Seller = Depends(get_current_seller),
+):
+    """Get detailed analytics for a single live session."""
+    # 1. Fetch session and verify ownership
+    session = await db.get(LiveSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.seller_id != current_seller.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # 2. Fetch all messages for this session
+    msg_result = await db.execute(select(MessageLog).where(MessageLog.session_id == session_id))
+    messages = msg_result.scalars().all()
+
+    # 3. Fetch all gifts for this session
+    gift_result = await db.execute(select(GiftLog).where(GiftLog.session_id == session_id))
+    gifts = gift_result.scalars().all()
+
+    # 4. Session info
+    duration_minutes = 0.0
+    if session.ended_at and session.started_at:
+        duration_minutes = round((session.ended_at - session.started_at).total_seconds() / 60, 1)
+
+    session_info = SessionInfo(
+        id=session.id,
+        started_at=session.started_at,
+        ended_at=session.ended_at,
+        duration_minutes=duration_minutes,
+    )
+
+    # 5. Summary
+    total_comments = len(messages)
+    total_replies = sum(1 for m in messages if m.reply is not None)
+    reply_rate = round(total_replies / total_comments * 100, 1) if total_comments > 0 else 0.0
+    total_gifts_count = len(gifts)
+    total_diamonds_sum = sum(g.total_diamonds for g in gifts)
+    estimated_usd = round(sum(g.estimated_usd for g in gifts), 2)
+
+    summary = SessionSummary(
+        total_comments=total_comments,
+        total_replies=total_replies,
+        reply_rate=reply_rate,
+        total_gifts=total_gifts_count,
+        total_diamonds=total_diamonds_sum,
+        estimated_usd=estimated_usd,
+    )
+
+    # 6. Timeline
+    timeline_buckets = compute_timeline(
+        session_start=session.started_at,
+        session_end=session.ended_at,
+        messages=messages,
+        gifts=gifts,
+        bucket_minutes=5,
+    )
+    timeline = [
+        TimelineBucketSchema(
+            bucket_start=b.bucket_start,
+            bucket_end=b.bucket_end,
+            comment_count=b.comment_count,
+            reply_count=b.reply_count,
+            gift_count=b.gift_count,
+            gift_diamonds=b.gift_diamonds,
+        )
+        for b in timeline_buckets
+    ]
+
+    # 7. Keywords
+    comment_texts = [m.comment for m in messages]
+    kw_results = extract_keywords(comment_texts, top_n=20)
+    top_keywords = [KeywordEntry(**kw) for kw in kw_results]
+
+    # 8. Breakdowns
+    intent_counter: dict[str, int] = {}
+    sentiment_counter: dict[str, int] = {}
+    for m in messages:
+        intent_counter[m.intent] = intent_counter.get(m.intent, 0) + 1
+        sentiment_counter[m.sentiment] = sentiment_counter.get(m.sentiment, 0) + 1
+
+    # 9. Engagement metrics
+    product_inquiry_count = intent_counter.get("product_inquiry", 0)
+    product_inquiry_rate = (
+        round(product_inquiry_count / total_comments * 100, 1) if total_comments > 0 else 0.0
+    )
+
+    unique_commenters = len({m.user_unique_id for m in messages})
+
+    comments_per_minute_avg = 0.0
+    if duration_minutes > 0:
+        comments_per_minute_avg = round(total_comments / duration_minutes, 1)
+    elif total_comments > 0 and messages:
+        sorted_msgs = sorted(messages, key=lambda m: m.created_at)
+        span = (sorted_msgs[-1].created_at - sorted_msgs[0].created_at).total_seconds() / 60
+        if span > 0:
+            comments_per_minute_avg = round(total_comments / span, 1)
+
+    # Peak minute
+    peak_minute = None
+    peak_comments = 0
+    if messages:
+        minute_counts: Counter[str] = Counter()
+        for m in messages:
+            minute_key = m.created_at.replace(second=0, microsecond=0).isoformat()
+            minute_counts[minute_key] += 1
+        if minute_counts:
+            peak_key, peak_comments = minute_counts.most_common(1)[0]
+            peak_minute = datetime.fromisoformat(peak_key)
+
+    engagement_metrics = EngagementMetrics(
+        product_inquiry_rate=product_inquiry_rate,
+        unique_commenters=unique_commenters,
+        comments_per_minute_avg=comments_per_minute_avg,
+        peak_minute=peak_minute,
+        peak_comments=peak_comments,
+    )
+
+    return SessionAnalyticsResponse(
+        session_info=session_info,
+        summary=summary,
+        timeline=timeline,
+        top_keywords=top_keywords,
+        intent_breakdown=intent_counter,
+        sentiment_breakdown=sentiment_counter,
+        engagement_metrics=engagement_metrics,
     )
