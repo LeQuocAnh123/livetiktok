@@ -1,4 +1,5 @@
 """Live Session API — start/stop/status/history + full RAG wiring."""
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from TikTokLive.client.client import TikTokLiveClient
 
 from app.api.ws import broadcast
@@ -21,7 +23,12 @@ from app.database import get_db, get_session_factory
 from app.models.message import MessageLog
 from app.models.seller import Seller
 from app.models.session import LiveSession, SessionStatus
-from app.schemas.session import MessageLogResponse, SessionResponse, SessionStartRequest, SessionStatusResponse
+from app.schemas.session import (
+    MessageLogResponse,
+    SessionResponse,
+    SessionStartRequest,
+    SessionStatusResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -37,6 +44,7 @@ _reply_count: int = 0
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
+
 
 def _build_pipeline(seller: Seller) -> RAGPipeline:
     embed_provider = get_embed_provider()
@@ -78,13 +86,15 @@ async def _handle_comment(user: str, text: str) -> None:
         message_id = msg.id
 
     # Broadcast comment to dashboard
-    await broadcast({
-        "type": "comment",
-        "message_id": message_id,
-        "user": user,
-        "content": text,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    await broadcast(
+        {
+            "type": "comment",
+            "message_id": message_id,
+            "user": user,
+            "content": text,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
     # Run RAG pipeline
     result = await _active_pipeline.process(user, text)
@@ -115,13 +125,15 @@ async def _handle_comment(user: str, text: str) -> None:
             await db.commit()
 
     # Broadcast reply to dashboard
-    await broadcast({
-        "type": "reply",
-        "message_id": message_id,
-        "content": result.reply,
-        "intent": result.intent,
-        "chunks_used": result.chunks_used,
-    })
+    await broadcast(
+        {
+            "type": "reply",
+            "message_id": message_id,
+            "content": result.reply,
+            "intent": result.intent,
+            "chunks_used": result.chunks_used,
+        }
+    )
 
 
 async def _handle_disconnect() -> None:
@@ -151,10 +163,12 @@ async def _handle_disconnect() -> None:
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 
+
 @router.post("/start", response_model=SessionStatusResponse)
 async def start_session(
     body: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ) -> SessionStatusResponse:
     global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
     global _bot_paused, _reply_count
@@ -204,19 +218,27 @@ async def start_session(
     # Start listener in background (non-blocking)
     task = asyncio.create_task(listener.start(), name="tiktok-listener")
     task.add_done_callback(
-        lambda t: logger.exception("Listener task crashed", exc_info=t.exception())
-        if not t.cancelled() and t.exception() else None
+        lambda t: (
+            logger.exception("Listener task crashed", exc_info=t.exception())
+            if not t.cancelled() and t.exception()
+            else None
+        )
     )
     _active_task = task
 
     await broadcast({"type": "status", "connected": True, "room_id": None})
     logger.info("Session started: %s", live_session.id)
 
-    return SessionStatusResponse(connected=True, session=SessionResponse.model_validate(live_session))
+    return SessionStatusResponse(
+        connected=True, session=SessionResponse.model_validate(live_session)
+    )
 
 
 @router.post("/stop")
-async def stop_session(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def stop_session(
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+) -> dict[str, str]:
     global _active_session_id, _active_listener, _active_replier, _active_pipeline, _active_task
     global _bot_paused, _reply_count
 
@@ -251,13 +273,14 @@ async def stop_session(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
 
 
 @router.get("/status", response_model=SessionStatusResponse)
-async def get_status(db: AsyncSession = Depends(get_db)) -> SessionStatusResponse:
+async def get_status(
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+) -> SessionStatusResponse:
     if _active_session_id is None:
         return SessionStatusResponse(connected=False, session=None)
 
-    result = await db.execute(
-        select(LiveSession).where(LiveSession.id == _active_session_id)
-    )
+    result = await db.execute(select(LiveSession).where(LiveSession.id == _active_session_id))
     session = result.scalar_one_or_none()
     if session is None or session.status != SessionStatus.ACTIVE:
         return SessionStatusResponse(connected=False, session=None)
@@ -270,13 +293,11 @@ async def get_history(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ) -> list[SessionResponse]:
     offset = (page - 1) * limit
     result = await db.execute(
-        select(LiveSession)
-        .order_by(LiveSession.started_at.desc())
-        .offset(offset)
-        .limit(limit)
+        select(LiveSession).order_by(LiveSession.started_at.desc()).offset(offset).limit(limit)
     )
     sessions = result.scalars().all()
     return [SessionResponse.model_validate(s) for s in sessions]
@@ -288,6 +309,7 @@ async def get_session_messages(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ) -> list[MessageLogResponse]:
     session = await db.get(LiveSession, session_id)
     if session is None:

@@ -1,4 +1,5 @@
 """Knowledge Base CRUD API."""
+
 import csv
 import io
 import logging
@@ -8,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, U
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.ai.factory import get_embed_provider
 from app.core.rag import retriever
 from app.database import get_db, get_session_factory
@@ -64,6 +66,7 @@ async def create_chunk(
     body: KnowledgeChunkCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     await _require_seller(body.seller_id, db)
     chunk = KnowledgeChunk(
@@ -86,6 +89,7 @@ async def list_chunks(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     offset = (page - 1) * limit
     count_result = await db.execute(
@@ -115,6 +119,7 @@ async def update_chunk(
     body: KnowledgeChunkUpdate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     chunk = await db.get(KnowledgeChunk, chunk_id)
     if chunk is None:
@@ -142,6 +147,7 @@ async def update_chunk(
 async def delete_chunk_endpoint(
     chunk_id: str,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     chunk = await db.get(KnowledgeChunk, chunk_id)
     if chunk is None:
@@ -172,13 +178,15 @@ def _validate_rows(rows: list[dict]) -> tuple[list[PreviewRow], list[str]]:
             is_valid = False
         elif raw_cat not in valid_categories:
             warning = f"Category '{raw_cat}' không hợp lệ → sẽ dùng 'faq'"
-        preview_rows.append(PreviewRow(
-            row=i, content=content, category=raw_cat, is_valid=is_valid, warning=warning
-        ))
+        preview_rows.append(
+            PreviewRow(row=i, content=content, category=raw_cat, is_valid=is_valid, warning=warning)
+        )
 
     warnings: list[str] = []
     empty = sum(1 for r in rows if not r.get("content", "").strip())
-    bad_cat = sum(1 for r in rows if r.get("category", "faq").strip().lower() not in valid_categories)
+    bad_cat = sum(
+        1 for r in rows if r.get("category", "faq").strip().lower() not in valid_categories
+    )
     if empty:
         warnings.append(f"{empty} dòng có content trống sẽ bị bỏ qua")
     if bad_cat:
@@ -187,7 +195,10 @@ def _validate_rows(rows: list[dict]) -> tuple[list[PreviewRow], list[str]]:
 
 
 @router.post("/preview", response_model=CsvPreviewResponse)
-async def preview_knowledge(file: UploadFile):
+async def preview_knowledge(
+    file: UploadFile,
+    _: str = Depends(get_current_user),
+):
     """Parse CSV and return preview without saving anything."""
     filename = file.filename or ""
     if not filename.endswith(".csv"):
@@ -200,7 +211,9 @@ async def preview_knowledge(file: UploadFile):
         raise HTTPException(status_code=400, detail="CSV must have a 'content' column")
 
     if len(rows) > MAX_UPLOAD_ROWS:
-        raise HTTPException(status_code=400, detail=f"File vượt quá {MAX_UPLOAD_ROWS} dòng (có {len(rows)})")
+        raise HTTPException(
+            status_code=400, detail=f"File vượt quá {MAX_UPLOAD_ROWS} dòng (có {len(rows)})"
+        )
 
     valid_rows = sum(1 for r in rows if r.get("content", "").strip())
     preview_rows, warnings = _validate_rows(rows)
@@ -219,6 +232,7 @@ async def upload_knowledge(
     file: UploadFile,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     """Bulk import from CSV. Columns: content (required), category (optional), + any metadata cols."""
     filename = file.filename or ""

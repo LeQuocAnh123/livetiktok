@@ -1,16 +1,23 @@
 """Settings API — get/update bot settings, test-reply preview."""
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.rag import retriever
 from app.core.rag.filter import detect_intent
 from app.core.rag.pipeline import SYSTEM_PROMPT_TEMPLATE
 from app.database import get_db
 from app.models.seller import Seller
-from app.schemas.settings import BotSettingsResponse, BotSettingsUpdate, TestReplyRequest, TestReplyResponse
+from app.schemas.settings import (
+    BotSettingsResponse,
+    BotSettingsUpdate,
+    TestReplyRequest,
+    TestReplyResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
@@ -24,7 +31,11 @@ async def _get_seller(seller_id: str, db: AsyncSession) -> Seller:
 
 
 @router.get("/", response_model=BotSettingsResponse)
-async def get_settings(seller_id: str, db: AsyncSession = Depends(get_db)):
+async def get_settings(
+    seller_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
     seller = await _get_seller(seller_id, db)
     return BotSettingsResponse(**seller.bot_settings)
 
@@ -34,6 +45,7 @@ async def update_settings(
     seller_id: str,
     body: BotSettingsUpdate,
     db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
 ):
     seller = await _get_seller(seller_id, db)
 
@@ -49,7 +61,11 @@ async def update_settings(
 
 
 @router.post("/test-reply", response_model=TestReplyResponse)
-async def test_reply(body: TestReplyRequest, db: AsyncSession = Depends(get_db)):
+async def test_reply(
+    body: TestReplyRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+):
     """Run the full RAG pipeline for a comment and return the preview reply.
     Does NOT send anything to TikTok."""
     seller = await _get_seller(body.seller_id, db)
@@ -59,7 +75,9 @@ async def test_reply(body: TestReplyRequest, db: AsyncSession = Depends(get_db))
     blacklist = settings.get("blacklist_keywords", [])
     comment_lower = body.comment.lower()
     if any(kw.lower() in comment_lower for kw in blacklist):
-        return TestReplyResponse(reply="[Bị chặn] Comment chứa từ khoá bị cấm.", intent="blacklist", chunks_used=[])
+        return TestReplyResponse(
+            reply="[Bị chặn] Comment chứa từ khoá bị cấm.", intent="blacklist", chunks_used=[]
+        )
 
     intent = detect_intent(body.comment)
 
@@ -71,7 +89,9 @@ async def test_reply(body: TestReplyRequest, db: AsyncSession = Depends(get_db))
     system = SYSTEM_PROMPT_TEMPLATE.format(tone=settings.get("tone", "friendly"))
 
     reply_provider = get_reply_provider()
-    reply = await reply_provider.generate_reply(system=system, context=context, user_msg=body.comment)
+    reply = await reply_provider.generate_reply(
+        system=system, context=context, user_msg=body.comment
+    )
 
     return TestReplyResponse(
         reply=reply,
