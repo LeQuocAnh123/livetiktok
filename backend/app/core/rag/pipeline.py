@@ -28,6 +28,20 @@ Trả lời dưới dạng JSON với đúng 3 field:
 - "sentiment": cảm xúc của comment ("positive" | "neutral" | "negative")
 - "reply": nội dung trả lời"""
 
+GIFT_PROMPT_TEMPLATE = """\
+Bạn là AI assistant hỗ trợ bán hàng trên TikTok Live. Một viewer vừa tặng gift cho bạn.
+
+Quy tắc:
+- Luôn trả lời bằng tiếng Việt
+- Ngắn gọn, chân thành (1-2 câu)
+- Cảm ơn viewer đã tặng gift, có thể nhắc tên gift
+- Tone: {tone}
+
+Trả lời dưới dạng JSON với đúng 3 field:
+- "intent": luôn là "gift_thank"
+- "sentiment": cảm xúc tổng thể ("positive" | "neutral" | "negative")
+- "reply": nội dung cảm ơn"""
+
 
 def _format_override_examples(overrides: list[tuple[str, str]]) -> str:
     """Format override examples for system prompt injection."""
@@ -51,6 +65,14 @@ class RAGResult:
     chunks_used: list[str]
     skipped: bool
     skip_reason: str | None = None
+
+
+@dataclass
+class GiftReplyResult:
+    """Result from gift thank-you generation."""
+
+    reply: str
+    sentiment: str
 
 
 @dataclass
@@ -128,4 +150,30 @@ class RAGPipeline:
             reply=llm_result.reply,
             chunks_used=[c["id"] for c in chunks],
             skipped=False,
+        )
+
+    async def process_gift(self, user_id: str, gift_context: str) -> GiftReplyResult:
+        """Generate a thank-you reply for a gift event.
+
+        Skips embedding, retrieval, and cooldown — gifts always get a response.
+        """
+        system = GIFT_PROMPT_TEMPLATE.format(
+            tone=self.seller_settings.get("tone", "friendly"),
+        )
+
+        llm_result: LLMResult = await self.generate_reply_fn(
+            system=system,
+            context="",
+            user_msg=gift_context,
+        )
+
+        logger.info(
+            "Gift reply for %s (sentiment=%s): %s",
+            user_id,
+            llm_result.sentiment,
+            llm_result.reply[:60],
+        )
+        return GiftReplyResult(
+            reply=llm_result.reply,
+            sentiment=llm_result.sentiment,
         )
