@@ -130,6 +130,7 @@ async function request<T>(
   // Don't set Content-Type for FormData — browser sets it with boundary automatically
   const isFormData = options.body instanceof FormData;
   const res = await fetch(url, {
+    credentials: "include",
     headers: isFormData
       ? (options.headers ?? {})
       : { "Content-Type": "application/json", ...options.headers },
@@ -277,6 +278,23 @@ export const api = {
       return request(`/api/v1/analytics/${qs({ seller_id: SELLER_ID })}`, {
         method: "GET",
       });
+    },
+  },
+
+  auth: {
+    login(username: string, password: string): Promise<{ username: string }> {
+      return request("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      });
+    },
+
+    logout(): Promise<{ message: string }> {
+      return request("/api/v1/auth/logout", { method: "POST" });
+    },
+
+    me(): Promise<{ username: string }> {
+      return request("/api/v1/auth/me", { method: "GET" });
     },
   },
 };
