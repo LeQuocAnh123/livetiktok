@@ -10,8 +10,19 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class SellerResponse(BaseModel):
+    """Current seller info returned after login."""
+
+    id: str
+    username: str
+    name: str
+    tiktok_unique_id: str
+
+    model_config = {"from_attributes": True}
+
+
 class UserResponse(BaseModel):
-    """Current user info."""
+    """DEPRECATED: Use SellerResponse instead."""
 
     username: str
 
