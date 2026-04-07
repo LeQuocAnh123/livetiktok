@@ -24,6 +24,7 @@ from app.core.tiktok.listener import LiveListener
 from app.core.tiktok.replier import Replier
 from app.database import get_db, get_session_factory
 from app.models.message import MessageLog
+from app.models.gift import GiftLog
 from app.models.seller import Seller
 from app.models.session import LiveSession, SessionStatus
 from app.schemas.session import (
@@ -148,6 +149,93 @@ async def _handle_comment(seller_id: str, user: str, text: str) -> None:
         state.active_pipeline._filter.reset_cooldown(user)
 
 
+async def _handle_gift(
+    seller_id: str, user: str, gift_name: str, diamond_count: int, repeat_count: int
+) -> None:
+    """Background callback: save gift → broadcast → LLM thank → reply → broadcast."""
+    state = get_session_state(seller_id)
+
+    if state.active_session_id is None or state.active_pipeline is None:
+        return
+
+    total_diamonds = diamond_count * repeat_count
+    estimated_usd = total_diamonds * 0.005
+
+    # 1. Save GiftLog to DB
+    gift_log_id: str | None = None
+    async with get_session_factory()() as db:
+        gift = GiftLog(
+            session_id=state.active_session_id,
+            user_unique_id=user,
+            gift_name=gift_name,
+            diamond_count=diamond_count,
+            repeat_count=repeat_count,
+            total_diamonds=total_diamonds,
+            estimated_usd=estimated_usd,
+        )
+        db.add(gift)
+        await db.commit()
+        await db.refresh(gift)
+        gift_log_id = gift.id
+
+    # 2. Broadcast gift event to dashboard
+    await broadcast(
+        {
+            "type": "gift",
+            "seller_id": seller_id,
+            "gift_log_id": gift_log_id,
+            "user": user,
+            "gift_name": gift_name,
+            "diamond_count": diamond_count,
+            "repeat_count": repeat_count,
+            "total_diamonds": total_diamonds,
+            "estimated_usd": estimated_usd,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+    # 3. Generate LLM thank-you (skip if bot paused or auto_reply disabled)
+    auto_reply = state.active_pipeline.seller_settings.get("auto_reply_enabled", True)
+    if state.bot_paused or not auto_reply:
+        return
+
+    gift_context = (
+        f"Viewer {user} vừa tặng {repeat_count}x {gift_name} "
+        f"({total_diamonds} diamonds, ~${estimated_usd:.2f})"
+    )
+
+    try:
+        result = await state.active_pipeline.process_gift(user, gift_context)
+    except Exception:
+        logger.exception("Failed to generate gift thank-you for %s", user)
+        return
+
+    # 4. Send reply via TikTok
+    try:
+        if state.active_replier is not None:
+            await state.active_replier.send(result.reply)
+    except Exception:
+        logger.exception("Failed to send gift thank-you to TikTok")
+
+    # 5. Update GiftLog with thank_reply
+    async with get_session_factory()() as db:
+        gift = await db.get(GiftLog, gift_log_id)
+        if gift:
+            gift.thank_reply = result.reply
+            await db.commit()
+
+    # 6. Broadcast gift reply to dashboard
+    await broadcast(
+        {
+            "type": "gift_reply",
+            "seller_id": seller_id,
+            "gift_log_id": gift_log_id,
+            "content": result.reply,
+            "user": user,
+        }
+    )
+
+
 async def _handle_disconnect(seller_id: str) -> None:
     """Callback when TikTok stream ends or connection drops.
 
@@ -208,6 +296,7 @@ async def start_session(
 
     # Register callbacks with seller_id bound via partial
     listener.on_comment(functools.partial(_handle_comment, seller_id))
+    listener.on_gift(functools.partial(_handle_gift, seller_id))
     listener.on_disconnect(functools.partial(_handle_disconnect, seller_id))
 
     # Create DB session record
