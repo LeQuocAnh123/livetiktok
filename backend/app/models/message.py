@@ -20,6 +20,7 @@ class MessageLog(Base):
     comment: Mapped[str] = mapped_column(String, nullable=False)
     reply: Mapped[str | None] = mapped_column(String, nullable=True)
     intent: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    sentiment: Mapped[str] = mapped_column(String, nullable=False, default="neutral")
     chunks_used: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
