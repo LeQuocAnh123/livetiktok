@@ -7,12 +7,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_seller
+from app.core.analytics.keywords import extract_keywords
 from app.database import get_db
 from app.models.gift import GiftLog
 from app.models.message import MessageLog
 from app.models.seller import Seller
 from app.models.session import LiveSession
-from app.schemas.analytics import AnalyticsResponse
+from app.schemas.analytics import (
+    AnalyticsResponse,
+    KeywordEntry,
+    SentimentTrendEntry,
+    SessionListEntry,
+)
 from app.schemas.gift import GiftBreakdown, GiftStats, TopGifter
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
@@ -159,6 +165,96 @@ async def get_analytics(
         gift_breakdown=gift_breakdown,
     )
 
+    # ── NEW: Sentiment trend (daily aggregation) ──────────────────────────────
+    sentiment_trend_rows = await db.execute(
+        select(
+            func.strftime("%Y-%m-%d", MessageLog.created_at).label("day"),
+            MessageLog.sentiment,
+            func.count(MessageLog.id),
+        )
+        .where(MessageLog.session_id.in_(session_subquery))
+        .group_by("day", MessageLog.sentiment)
+        .order_by("day")
+    )
+
+    trend_map: dict[str, dict[str, int]] = {}
+    for day_str, sentiment, cnt in sentiment_trend_rows.all():
+        if day_str not in trend_map:
+            trend_map[day_str] = {"positive": 0, "neutral": 0, "negative": 0}
+        if sentiment in trend_map[day_str]:
+            trend_map[day_str][sentiment] = cnt
+
+    sentiment_trend = [
+        SentimentTrendEntry(date=d, **counts) for d, counts in sorted(trend_map.items())
+    ]
+
+    # ── NEW: Top keywords overall ─────────────────────────────────────────────
+    comment_rows = await db.execute(
+        select(MessageLog.comment).where(MessageLog.session_id.in_(session_subquery))
+    )
+    all_comments = [row[0] for row in comment_rows.all()]
+    kw_results = extract_keywords(all_comments, top_n=20)
+    top_keywords_overall = [KeywordEntry(**kw) for kw in kw_results]
+
+    # ── NEW: Session list (per-session summaries) ─────────────────────────────
+    sessions_result = await db.execute(
+        select(LiveSession).where(session_filter).order_by(LiveSession.started_at.desc())
+    )
+    sessions = sessions_result.scalars().all()
+
+    session_list: list[SessionListEntry] = []
+    for sess in sessions:
+        s_msg_rows = await db.execute(
+            select(
+                func.count(MessageLog.id),
+                func.count(MessageLog.reply),
+            ).where(MessageLog.session_id == sess.id)
+        )
+        s_msg = s_msg_rows.one()
+        s_comment_count = s_msg[0]
+        s_reply_count = s_msg[1]
+
+        s_intent_rows = await db.execute(
+            select(MessageLog.intent, func.count(MessageLog.id))
+            .where(MessageLog.session_id == sess.id)
+            .group_by(MessageLog.intent)
+            .order_by(func.count(MessageLog.id).desc())
+            .limit(1)
+        )
+        s_top_intent_row = s_intent_rows.first()
+        s_top_intent = s_top_intent_row[0] if s_top_intent_row else "none"
+
+        s_gift_rows = await db.execute(
+            select(
+                func.count(GiftLog.id),
+                func.coalesce(func.sum(GiftLog.total_diamonds), 0),
+            ).where(GiftLog.session_id == sess.id)
+        )
+        s_gift = s_gift_rows.one()
+
+        duration_minutes = 0.0
+        if sess.ended_at and sess.started_at:
+            duration_minutes = round((sess.ended_at - sess.started_at).total_seconds() / 60, 1)
+
+        s_reply_rate = (
+            round(s_reply_count / s_comment_count * 100, 1) if s_comment_count > 0 else 0.0
+        )
+
+        session_list.append(
+            SessionListEntry(
+                id=sess.id,
+                started_at=sess.started_at,
+                ended_at=sess.ended_at,
+                duration_minutes=duration_minutes,
+                comment_count=s_comment_count,
+                reply_count=s_reply_count,
+                reply_rate=s_reply_rate,
+                gift_count=s_gift[0],
+                gift_diamonds=int(s_gift[1]),
+                top_intent=s_top_intent,
+            )
+        )
+
     return AnalyticsResponse(
         total_sessions=total_sessions,
         total_comments=total_comments,
@@ -168,4 +264,7 @@ async def get_analytics(
         sentiment_breakdown=sentiment_breakdown,
         unanswered_count=unanswered_count,
         gift_stats=gift_stats,
+        sentiment_trend=sentiment_trend,
+        top_keywords_overall=top_keywords_overall,
+        session_list=session_list,
     )
