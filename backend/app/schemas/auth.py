@@ -14,3 +14,9 @@ class UserResponse(BaseModel):
     """Current user info."""
 
     username: str
+
+
+class MessageResponse(BaseModel):
+    """Generic message response."""
+
+    message: str

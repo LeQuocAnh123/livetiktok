@@ -50,6 +50,7 @@ async def health():
     try:
         from sqlalchemy import text
         from app.database import _get_engine
+
         async with _get_engine().connect() as conn:
             await conn.execute(text("SELECT 1"))
         results["db"] = "ok"
@@ -60,6 +61,7 @@ async def health():
     # Check ChromaDB
     try:
         from app.core.rag.retriever import _get_client
+
         _get_client().heartbeat()
         results["chroma"] = "ok"
     except Exception as exc:
@@ -70,16 +72,25 @@ async def health():
 
 
 from app.api.v1.sessions import router as sessions_router  # noqa: E402
+
 app.include_router(sessions_router)
 
 from app.api.v1.knowledge import router as knowledge_router  # noqa: E402
+
 app.include_router(knowledge_router)
 
 from app.api.v1.settings import router as settings_router  # noqa: E402
+
 app.include_router(settings_router)
 
 from app.api.ws import router as ws_router  # noqa: E402
+
 app.include_router(ws_router)
 
 from app.api.v1.analytics import router as analytics_router  # noqa: E402
+
 app.include_router(analytics_router)
+
+from app.api.v1.auth import router as auth_router  # noqa: E402
+
+app.include_router(auth_router)
