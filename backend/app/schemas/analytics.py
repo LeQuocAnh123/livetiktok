@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.gift import GiftStats
+
 
 class AnalyticsResponse(BaseModel):
     total_sessions: int
@@ -13,3 +15,4 @@ class AnalyticsResponse(BaseModel):
         default_factory=dict, description="Sentiment label to count mapping"
     )
     unanswered_count: int
+    gift_stats: GiftStats | None = None
