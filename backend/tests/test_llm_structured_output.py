@@ -63,3 +63,61 @@ async def test_claude_fallback_on_text_response():
     assert isinstance(result, LLMResult)
     assert result.intent == "greeting"
     assert result.reply == "Chào bạn!"
+
+
+@pytest.mark.asyncio
+async def test_openai_returns_llm_result():
+    """OpenAI provider parses json_schema response into LLMResult."""
+    from app.core.ai.openai_llm import OpenAILLMProvider
+
+    mock_client = AsyncMock()
+    provider = OpenAILLMProvider.__new__(OpenAILLMProvider)
+    provider._client = mock_client
+
+    mock_message = MagicMock()
+    mock_message.content = json.dumps(
+        {
+            "intent": "complaint",
+            "sentiment": "negative",
+            "reply": "Dạ em xin lỗi ạ!",
+        }
+    )
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    result = await provider.generate_reply(
+        system="test", context="ctx", user_msg="Giao hàng chậm quá!"
+    )
+
+    assert isinstance(result, LLMResult)
+    assert result.intent == "complaint"
+    assert result.sentiment == "negative"
+    assert result.reply == "Dạ em xin lỗi ạ!"
+
+
+@pytest.mark.asyncio
+async def test_openai_fallback_on_plain_text():
+    """OpenAI provider falls back when response is not JSON."""
+    from app.core.ai.openai_llm import OpenAILLMProvider
+
+    mock_client = AsyncMock()
+    provider = OpenAILLMProvider.__new__(OpenAILLMProvider)
+    provider._client = mock_client
+
+    mock_message = MagicMock()
+    mock_message.content = "Dạ giá 150k ạ!"
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    result = await provider.generate_reply(system="test", context="ctx", user_msg="Giá?")
+
+    assert isinstance(result, LLMResult)
+    assert result.intent == "other"
+    assert result.sentiment == "neutral"
+    assert result.reply == "Dạ giá 150k ạ!"
