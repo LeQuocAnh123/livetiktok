@@ -85,6 +85,40 @@ export interface TestReplyResult {
   chunks_used: string[];
 }
 
+// Gift tracking
+export interface GiftLogEntry {
+  id: string;
+  session_id: string;
+  user_unique_id: string;
+  gift_name: string;
+  diamond_count: number;
+  repeat_count: number;
+  total_diamonds: number;
+  estimated_usd: number;
+  thank_reply: string | null;
+  created_at: string;
+}
+
+export interface TopGifter {
+  user: string;
+  total_diamonds: number;
+  gift_count: number;
+}
+
+export interface GiftBreakdown {
+  gift_name: string;
+  count: number;
+  total_diamonds: number;
+}
+
+export interface GiftStats {
+  total_gifts: number;
+  total_diamonds: number;
+  estimated_usd: number;
+  top_gifters: TopGifter[];
+  gift_breakdown: GiftBreakdown[];
+}
+
 // Analytics
 export interface AnalyticsData {
   total_sessions: number;
@@ -92,7 +126,9 @@ export interface AnalyticsData {
   total_replies: number;
   reply_rate: number;
   intent_breakdown: Record<string, number>;
+  sentiment_breakdown: Record<string, number>;
   unanswered_count: number;
+  gift_stats: GiftStats | null;
 }
 
 // Message log
@@ -251,6 +287,14 @@ export const api = {
       const { page = 1, limit = 50 } = params;
       return request(
         `/api/v1/sessions/${sessionId}/messages${qs({ page, limit })}`,
+        { method: "GET" },
+      );
+    },
+
+    gifts(sessionId: string, params: { page?: number; limit?: number } = {}): Promise<GiftLogEntry[]> {
+      const { page = 1, limit = 50 } = params;
+      return request(
+        `/api/v1/sessions/${sessionId}/gifts${qs({ page, limit })}`,
         { method: "GET" },
       );
     },

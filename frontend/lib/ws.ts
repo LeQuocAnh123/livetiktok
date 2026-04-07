@@ -9,6 +9,18 @@ export type WSMessage =
       timestamp: string;
     }
   | { type: "reply"; message_id: string; content: string; intent: string; chunks_used: string[] }
+  | {
+      type: "gift";
+      gift_log_id: string;
+      user: string;
+      gift_name: string;
+      diamond_count: number;
+      repeat_count: number;
+      total_diamonds: number;
+      estimated_usd: number;
+      timestamp: string;
+    }
+  | { type: "gift_reply"; gift_log_id: string; user: string; content: string }
   | { type: "status"; connected?: boolean; paused?: boolean; room_id?: number }
   | { type: "error"; message: string }
   | { type: "connection"; status: "connecting" | "connected" | "disconnected" | "reconnecting" };
