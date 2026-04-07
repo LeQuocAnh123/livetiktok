@@ -2,9 +2,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
-
-from app.config import get_settings
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,17 +23,23 @@ async def broadcast(message: dict[str, Any]) -> None:
 
 
 @router.websocket("/ws/monitor")
-async def websocket_monitor(
-    websocket: WebSocket,
-    token: str = Query(default=""),
-):
-    required = get_settings().ws_monitor_token
-    if required and token != required:
+async def websocket_monitor(websocket: WebSocket):
+    # Auth via cookie
+    token = websocket.cookies.get("access_token")
+    if not token:
         await websocket.close(code=1008)
         return
+
+    from app.core.security import decode_access_token
+
+    username = decode_access_token(token)
+    if not username:
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     _connections.append(websocket)
-    logger.info("Dashboard client connected (%d total)", len(_connections))
+    logger.info("Dashboard client connected: %s (%d total)", username, len(_connections))
     try:
         while True:
             data = await websocket.receive_text()
@@ -50,11 +54,13 @@ async def websocket_monitor(
 
             if msg_type == "pause_bot":
                 import app.api.v1.sessions as sessions_module
+
                 sessions_module._bot_paused = True
                 await broadcast({"type": "status", "paused": True})
 
             elif msg_type == "resume_bot":
                 import app.api.v1.sessions as sessions_module
+
                 sessions_module._bot_paused = False
                 await broadcast({"type": "status", "paused": False})
 
@@ -103,10 +109,12 @@ async def _handle_manual_reply(msg: dict) -> None:
             log.intent = "manual"
             await db.commit()
 
-    await broadcast({
-        "type": "reply",
-        "message_id": message_id,
-        "content": content,
-        "intent": "manual",
-        "chunks_used": [],
-    })
+    await broadcast(
+        {
+            "type": "reply",
+            "message_id": message_id,
+            "content": content,
+            "intent": "manual",
+            "chunks_used": [],
+        }
+    )
