@@ -121,3 +121,34 @@ async def test_openai_fallback_on_plain_text():
     assert result.intent == "other"
     assert result.sentiment == "neutral"
     assert result.reply == "Dạ giá 150k ạ!"
+
+
+@pytest.mark.asyncio
+async def test_groq_returns_llm_result():
+    """Groq provider parses json_object response into LLMResult."""
+    from app.core.ai.groq_llm import GroqProvider
+
+    mock_client = AsyncMock()
+    provider = GroqProvider.__new__(GroqProvider)
+    provider._client = mock_client
+
+    mock_message = MagicMock()
+    mock_message.content = json.dumps(
+        {
+            "intent": "greeting",
+            "sentiment": "positive",
+            "reply": "Chào bạn! Cảm ơn đã ghé shop!",
+        }
+    )
+    mock_choice = MagicMock()
+    mock_choice.message = mock_message
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    result = await provider.generate_reply(system="test", context="ctx", user_msg="Hello shop!")
+
+    assert isinstance(result, LLMResult)
+    assert result.intent == "greeting"
+    assert result.sentiment == "positive"
+    assert result.reply == "Chào bạn! Cảm ơn đã ghé shop!"
