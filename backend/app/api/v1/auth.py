@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, Response, Depends
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.config import get_settings
 from app.core.security import create_access_token, decode_access_token, verify_password

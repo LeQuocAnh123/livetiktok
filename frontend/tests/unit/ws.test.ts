@@ -14,6 +14,7 @@ class MockWebSocket {
   onclose: ((event: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   constructor(_url: string) {
     setTimeout(() => {
       this.readyState = MockWebSocket.OPEN;
