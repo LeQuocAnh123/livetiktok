@@ -4,30 +4,36 @@ import { toast } from "sonner";
 import { StatsCards } from "@/components/analytics/StatsCards";
 import { IntentBreakdown } from "@/components/analytics/IntentBreakdown";
 import { UnansweredSummary } from "@/components/analytics/UnansweredSummary";
+import { DateRangeFilter } from "@/components/analytics/DateRangeFilter";
 import { api, type AnalyticsData } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   function load() {
     setError(false);
     setLoading(true);
     api.analytics
-      .get()
+      .get({
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      })
       .then(setData)
       .catch(() => {
         setData(null);
         setError(true);
-        toast.error("Không tải được thống kê");
+        toast.error("Failed to load analytics");
       })
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -36,25 +42,37 @@ export default function AnalyticsPage() {
         <div>
           <h2 className="text-2xl font-bold">Analytics</h2>
           <p className="text-sm text-muted-foreground">
-            Thống kê toàn bộ buổi live
+            Live session statistics
+            {startDate && endDate
+              ? ` from ${startDate} to ${endDate}`
+              : " (all time)"}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-          {loading ? "Đang tải…" : "Làm mới"}
-        </Button>
       </div>
+
+      <DateRangeFilter
+        startDate={startDate}
+        endDate={endDate}
+        onStartChange={setStartDate}
+        onEndChange={setEndDate}
+        onApply={load}
+        loading={loading}
+      />
 
       {error && (
         <div className="space-y-2">
-          <p className="text-sm text-destructive">Không tải được dữ liệu.</p>
-          <Button variant="outline" size="sm" onClick={load}>
-            Thử lại
-          </Button>
+          <p className="text-sm text-destructive">Failed to load data.</p>
+          <button
+            onClick={load}
+            className="text-sm underline"
+          >
+            Retry
+          </button>
         </div>
       )}
 
       {loading && !data && (
-        <p className="text-sm text-muted-foreground">Đang tải…</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       )}
 
       {data && (
