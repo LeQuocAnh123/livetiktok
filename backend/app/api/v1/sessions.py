@@ -32,6 +32,7 @@ from app.schemas.session import (
     SessionResponse,
     SessionStatusResponse,
 )
+from app.schemas.gift import GiftLogResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -430,3 +431,29 @@ async def get_session_messages(
         .limit(limit)
     )
     return [MessageLogResponse.model_validate(m) for m in result.scalars().all()]
+
+
+@router.get("/{session_id}/gifts", response_model=list[GiftLogResponse])
+async def get_session_gifts(
+    session_id: str,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    db: AsyncSession = Depends(get_db),
+    current_seller: Seller = Depends(get_current_seller),
+) -> list[GiftLogResponse]:
+    session = await db.get(LiveSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.seller_id != current_seller.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this session")
+
+    offset = (page - 1) * limit
+    result = await db.execute(
+        select(GiftLog)
+        .where(GiftLog.session_id == session_id)
+        .order_by(GiftLog.created_at.asc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return [GiftLogResponse.model_validate(g) for g in result.scalars().all()]
