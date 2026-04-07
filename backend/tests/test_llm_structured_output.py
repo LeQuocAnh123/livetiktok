@@ -152,3 +152,36 @@ async def test_groq_returns_llm_result():
     assert result.intent == "greeting"
     assert result.sentiment == "positive"
     assert result.reply == "Chào bạn! Cảm ơn đã ghé shop!"
+
+
+@pytest.mark.asyncio
+async def test_gemini_returns_llm_result():
+    """Gemini provider parses structured response into LLMResult."""
+    from app.core.ai.gemini_llm import GeminiLLMProvider
+
+    mock_client = MagicMock()
+    provider = GeminiLLMProvider.__new__(GeminiLLMProvider)
+    provider._client = mock_client
+
+    mock_response = MagicMock()
+    mock_response.text = json.dumps(
+        {
+            "intent": "spam",
+            "sentiment": "neutral",
+            "reply": "Dạ bên em chuyên về thời trang, bên em không hỗ trợ vấn đề này ạ!",
+        }
+    )
+    mock_client.models.generate_content = MagicMock(return_value=mock_response)
+
+    with patch("app.core.ai.gemini_llm.asyncio") as mock_asyncio:
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor = AsyncMock(return_value=mock_response)
+        mock_asyncio.get_event_loop.return_value = mock_loop
+
+        result = await provider.generate_reply(
+            system="test", context="ctx", user_msg="Bán acc game không?"
+        )
+
+    assert isinstance(result, LLMResult)
+    assert result.intent == "spam"
+    assert result.reply == "Dạ bên em chuyên về thời trang, bên em không hỗ trợ vấn đề này ạ!"
