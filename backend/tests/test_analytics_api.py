@@ -14,6 +14,7 @@ async def test_analytics_returns_zeros_for_new_seller(auth_client: AsyncClient, 
     assert data["total_replies"] == 0
     assert data["reply_rate"] == 0.0
     assert data["intent_breakdown"] == {}
+    assert data["sentiment_breakdown"] == {}
     assert data["unanswered_count"] == 0
 
 

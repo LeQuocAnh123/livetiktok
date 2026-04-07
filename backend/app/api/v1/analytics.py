@@ -70,6 +70,13 @@ async def get_analytics(
     )
     intent_breakdown = {row[0]: row[1] for row in intent_rows.all()}
 
+    sentiment_rows = await db.execute(
+        select(MessageLog.sentiment, func.count(MessageLog.id))
+        .where(MessageLog.session_id.in_(session_subquery))
+        .group_by(MessageLog.sentiment)
+    )
+    sentiment_breakdown = {row[0]: row[1] for row in sentiment_rows.all()}
+
     unanswered_count = (
         await db.scalar(
             select(func.count(MessageLog.id)).where(
@@ -87,5 +94,6 @@ async def get_analytics(
         total_replies=total_replies,
         reply_rate=reply_rate,
         intent_breakdown=intent_breakdown,
+        sentiment_breakdown=sentiment_breakdown,
         unanswered_count=unanswered_count,
     )
