@@ -7,6 +7,8 @@ import { BotControls } from "@/components/monitor/BotControls";
 import { useSession } from "@/hooks/useSession";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
+const MAX_FEED_ITEMS = 200;
+
 export default function MonitorPage() {
   const { state, loading, start, stop, refresh } = useSession();
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
@@ -19,7 +21,22 @@ export default function MonitorPage() {
 
   useWebSocket({
     comment: (msg) => {
-      addOrUpdate((items) => [...items, { ...msg }]);
+      addOrUpdate((items) => {
+        const updated = [...items, { ...msg }];
+        // Keep only the most recent MAX_FEED_ITEMS items
+        if (updated.length > MAX_FEED_ITEMS) {
+          const trimmed = updated.slice(-MAX_FEED_ITEMS);
+          // Clear selection if selected item was removed
+          const removedIds = new Set(
+            updated.slice(0, updated.length - MAX_FEED_ITEMS).map((i) => i.message_id)
+          );
+          if (selectedId && removedIds.has(selectedId)) {
+            setSelectedId(null);
+          }
+          return trimmed;
+        }
+        return updated;
+      });
     },
     reply: (msg) => {
       addOrUpdate((items) =>
