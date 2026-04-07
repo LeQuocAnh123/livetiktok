@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     admin_password: str = ""  # Required in production
     jwt_expire_hours: int = 24
 
+    # CORS - comma-separated list of allowed origins
+    cors_origins: str = "http://localhost:3000"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
