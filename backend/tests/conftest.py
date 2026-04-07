@@ -13,6 +13,7 @@ from app.database import Base, get_db
 import app.models.seller  # noqa: F401
 import app.models.session  # noqa: F401
 import app.models.message  # noqa: F401
+import app.models.gift  # noqa: F401
 
 _TEST_SELLER_ID = "test-seller-001"
 
