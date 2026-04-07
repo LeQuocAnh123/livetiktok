@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.core.ai.base import LLMResult
+
 
 async def test_get_settings(auth_client, test_seller):
     """GET /api/v1/settings/ returns current bot settings for authenticated seller."""
@@ -70,7 +72,11 @@ async def test_test_reply(auth_client, test_seller):
         ]
 
         mock_reply_provider = AsyncMock()
-        mock_reply_provider.generate_reply = AsyncMock(return_value="Dạ giá 150k ạ!")
+        mock_reply_provider.generate_reply = AsyncMock(
+            return_value=LLMResult(
+                intent="product_inquiry", sentiment="neutral", reply="Dạ giá 150k ạ!"
+            )
+        )
         mock_reply_factory.return_value = mock_reply_provider
 
         resp = await auth_client.post(

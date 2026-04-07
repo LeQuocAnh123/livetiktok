@@ -41,12 +41,18 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 def _build_pipeline(seller: Seller) -> RAGPipeline:
     embed_provider = get_embed_provider()
     reply_provider = get_reply_provider()
+
+    async def _fetch_overrides(seller_id: str) -> list[tuple[str, str]]:
+        """Placeholder: return empty list until override storage is implemented."""
+        return []
+
     return RAGPipeline(
         seller_id=seller.id,
         seller_settings=seller.bot_settings,
         embed_fn=embed_provider.embed,
         retrieve_fn=retriever.query,
         generate_reply_fn=reply_provider.generate_reply,
+        fetch_overrides_fn=_fetch_overrides,
     )
 
 

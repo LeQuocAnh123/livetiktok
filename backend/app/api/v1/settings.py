@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.auth import get_current_seller
 from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.rag import retriever
-from app.core.rag.filter import detect_intent
 from app.core.rag.pipeline import SYSTEM_PROMPT_TEMPLATE
 from app.database import get_db
 from app.models.seller import Seller
@@ -69,22 +68,23 @@ async def test_reply(
             reply="[Bị chặn] Comment chứa từ khoá bị cấm.", intent="blacklist", chunks_used=[]
         )
 
-    intent = detect_intent(body.comment)
-
     embed_provider = get_embed_provider()
     embedding = await embed_provider.embed(body.comment)
 
     chunks = await retriever.query(seller_id, embedding, n_results=3)
     context = "\n\n".join(c["content"] for c in chunks)
-    system = SYSTEM_PROMPT_TEMPLATE.format(tone=settings.get("tone", "friendly"))
+    system = SYSTEM_PROMPT_TEMPLATE.format(
+        tone=settings.get("tone", "friendly"),
+        override_examples="",
+    )
 
     reply_provider = get_reply_provider()
-    reply = await reply_provider.generate_reply(
+    llm_result = await reply_provider.generate_reply(
         system=system, context=context, user_msg=body.comment
     )
 
     return TestReplyResponse(
-        reply=reply,
-        intent=intent,
+        reply=llm_result.reply,
+        intent=llm_result.intent,
         chunks_used=[c["id"] for c in chunks],
     )

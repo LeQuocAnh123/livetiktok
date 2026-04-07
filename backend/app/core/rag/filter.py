@@ -1,32 +1,11 @@
-"""Comment filter: blacklist keywords, intent detection, per-user cooldown."""
+"""Comment filter: blacklist keywords, per-user cooldown."""
+
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-# Vietnamese e-commerce intent keywords
-_INTENT_KEYWORDS: dict[str, list[str]] = {
-    "product_inquiry": [
-        "giá", "bao nhiêu", "mua", "đặt hàng", "order", "ship", "giao hàng",
-        "giao", "size", "màu", "chất liệu", "còn hàng", "hết hàng", "mẫu",
-        "sản phẩm", "hàng", "thanh toán", "cod", "chuyển khoản", "freeship",
-        "discount", "giảm giá", "khuyến mãi", "tặng", "bộ", "set",
-    ],
-    "greeting": [
-        "hello", "hi", "chào", "alo", "hey", "xin chào", "shop ơi",
-    ],
-}
-
-
-def detect_intent(text: str) -> str:
-    """Return detected intent: 'product_inquiry' | 'greeting' | 'unknown'."""
-    text_lower = text.lower()
-    for intent, keywords in _INTENT_KEYWORDS.items():
-        if any(kw in text_lower for kw in keywords):
-            return intent
-    return "unknown"
 
 
 @dataclass
@@ -67,3 +46,7 @@ class CommentFilter:
     def update_cooldown(self, user_id: str) -> None:
         """Record that we replied to this user right now."""
         self._cooldown_map[user_id] = time.time()
+
+    def reset_cooldown(self, user_id: str) -> None:
+        """Remove user from cooldown map (e.g. for negative sentiment priority)."""
+        self._cooldown_map.pop(user_id, None)
