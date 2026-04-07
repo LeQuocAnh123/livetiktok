@@ -1,10 +1,12 @@
+"""Integration tests for Analytics API."""
+
 import pytest
 from httpx import AsyncClient
 
 
-@pytest.mark.asyncio
-async def test_analytics_returns_zeros_for_new_seller(auth_client: AsyncClient, seller_id: str):
-    resp = await auth_client.get("/api/v1/analytics/", params={"seller_id": seller_id})
+async def test_analytics_returns_zeros_for_new_seller(auth_client: AsyncClient, test_seller):
+    """GET /api/v1/analytics/ returns zero stats for authenticated seller with no data."""
+    resp = await auth_client.get("/api/v1/analytics/")
     assert resp.status_code == 200
     data = resp.json()
     assert data["total_sessions"] == 0
@@ -15,7 +17,7 @@ async def test_analytics_returns_zeros_for_new_seller(auth_client: AsyncClient, 
     assert data["unanswered_count"] == 0
 
 
-@pytest.mark.asyncio
-async def test_analytics_404_for_unknown_seller(auth_client: AsyncClient):
-    resp = await auth_client.get("/api/v1/analytics/", params={"seller_id": "nonexistent"})
-    assert resp.status_code == 404
+async def test_unauthenticated_returns_401(client: AsyncClient):
+    """Unauthenticated requests return 401."""
+    resp = await client.get("/api/v1/analytics/")
+    assert resp.status_code == 401

@@ -3,9 +3,7 @@ from pydantic import BaseModel
 from app.models.session import SessionStatus
 
 
-class SessionStartRequest(BaseModel):
-    seller_id: str
-    # tiktok_unique_id is read from Seller record, not passed in request
+# SessionStartRequest removed - seller_id comes from JWT, no body needed for start
 
 
 class SessionResponse(BaseModel):

@@ -1,6 +1,7 @@
 """Live Session API — start/stop/status/history + full RAG wiring."""
 
 import asyncio
+import functools
 import logging
 from datetime import datetime, timezone
 from typing import Annotated
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_seller
 from TikTokLive.client.client import TikTokLiveClient
 
 from app.api.ws import broadcast
@@ -17,7 +18,7 @@ from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.crypto import decrypt
 from app.core.rag import retriever
 from app.core.rag.pipeline import RAGPipeline
-from app.core.session_state import session_state
+from app.core.session_state import get_session_state
 from app.core.tiktok.listener import LiveListener
 from app.core.tiktok.replier import Replier
 from app.database import get_db, get_session_factory
@@ -27,7 +28,6 @@ from app.models.session import LiveSession, SessionStatus
 from app.schemas.session import (
     MessageLogResponse,
     SessionResponse,
-    SessionStartRequest,
     SessionStatusResponse,
 )
 
@@ -50,9 +50,12 @@ def _build_pipeline(seller: Seller) -> RAGPipeline:
     )
 
 
-async def _handle_comment(user: str, text: str) -> None:
-    """Background callback: filter → RAG → save → reply → broadcast."""
-    state = session_state
+async def _handle_comment(seller_id: str, user: str, text: str) -> None:
+    """Background callback: filter → RAG → save → reply → broadcast.
+
+    Note: seller_id is bound via functools.partial when registering the callback.
+    """
+    state = get_session_state(seller_id)
 
     if state.bot_paused or state.active_pipeline is None or state.active_session_id is None:
         return
@@ -77,10 +80,11 @@ async def _handle_comment(user: str, text: str) -> None:
         await db.refresh(msg)
         message_id = msg.id
 
-    # Broadcast comment to dashboard
+    # Broadcast comment to dashboard (with seller_id for routing)
     await broadcast(
         {
             "type": "comment",
+            "seller_id": seller_id,
             "message_id": message_id,
             "user": user,
             "content": text,
@@ -116,10 +120,11 @@ async def _handle_comment(user: str, text: str) -> None:
             msg.chunks_used = result.chunks_used
             await db.commit()
 
-    # Broadcast reply to dashboard
+    # Broadcast reply to dashboard (with seller_id for routing)
     await broadcast(
         {
             "type": "reply",
+            "seller_id": seller_id,
             "message_id": message_id,
             "content": result.reply,
             "intent": result.intent,
@@ -128,11 +133,14 @@ async def _handle_comment(user: str, text: str) -> None:
     )
 
 
-async def _handle_disconnect() -> None:
-    """Callback when TikTok stream ends or connection drops."""
-    state = session_state
+async def _handle_disconnect(seller_id: str) -> None:
+    """Callback when TikTok stream ends or connection drops.
 
-    logger.info("TikTok disconnect — marking session ended")
+    Note: seller_id is bound via functools.partial when registering the callback.
+    """
+    state = get_session_state(seller_id)
+
+    logger.info("TikTok disconnect for seller %s — marking session ended", seller_id)
     if state.active_session_id:
         async with get_session_factory()() as db:
             session = await db.get(LiveSession, state.active_session_id)
@@ -141,7 +149,7 @@ async def _handle_disconnect() -> None:
                 session.ended_at = datetime.now(timezone.utc)
                 await db.commit()
 
-    await broadcast({"type": "status", "connected": False})
+    await broadcast({"type": "status", "seller_id": seller_id, "connected": False})
 
     state.reset()
 
@@ -151,42 +159,38 @@ async def _handle_disconnect() -> None:
 
 @router.post("/start", response_model=SessionStatusResponse)
 async def start_session(
-    body: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ) -> SessionStatusResponse:
-    state = session_state
+    seller_id = current_seller.id
+    state = get_session_state(seller_id)
 
     if state.active_session_id is not None:
         raise HTTPException(status_code=400, detail="A session is already active. Stop it first.")
 
-    seller = await db.get(Seller, body.seller_id)
-    if seller is None:
-        raise HTTPException(status_code=404, detail="Seller not found")
-
     # Decrypt TikTok credentials
-    session_id = decrypt(seller.tiktok_session_id_encrypted)
-    target_idc = decrypt(seller.tiktok_target_idc_encrypted)
+    session_id = decrypt(current_seller.tiktok_session_id_encrypted)
+    target_idc = decrypt(current_seller.tiktok_target_idc_encrypted)
 
     # Build TikTok client
-    tiktok_client = TikTokLiveClient(unique_id=seller.tiktok_unique_id)
+    tiktok_client = TikTokLiveClient(unique_id=current_seller.tiktok_unique_id)
     tiktok_client.web.set_session(session_id, target_idc)
 
     # Build components
     listener = LiveListener(tiktok_client)
     replier = Replier(
         web_client=tiktok_client.web,
-        delay_min=float(seller.bot_settings.get("reply_delay_min", 5)),
-        delay_max=float(seller.bot_settings.get("reply_delay_max", 15)),
+        delay_min=float(current_seller.bot_settings.get("reply_delay_min", 5)),
+        delay_max=float(current_seller.bot_settings.get("reply_delay_max", 15)),
     )
-    pipeline = _build_pipeline(seller)
+    pipeline = _build_pipeline(current_seller)
 
-    # Register callbacks
-    listener.on_comment(_handle_comment)
-    listener.on_disconnect(_handle_disconnect)
+    # Register callbacks with seller_id bound via partial
+    listener.on_comment(functools.partial(_handle_comment, seller_id))
+    listener.on_disconnect(functools.partial(_handle_disconnect, seller_id))
 
     # Create DB session record
-    live_session = LiveSession(seller_id=seller.id, status=SessionStatus.ACTIVE)
+    live_session = LiveSession(seller_id=seller_id, status=SessionStatus.ACTIVE)
     db.add(live_session)
     await db.commit()
     await db.refresh(live_session)
@@ -200,18 +204,20 @@ async def start_session(
     state.reply_count = 0
 
     # Start listener in background (non-blocking)
-    task = asyncio.create_task(listener.start(), name="tiktok-listener")
+    task = asyncio.create_task(listener.start(), name=f"tiktok-listener-{seller_id}")
     task.add_done_callback(
         lambda t: (
-            logger.exception("Listener task crashed", exc_info=t.exception())
+            logger.exception(
+                "Listener task crashed for seller %s", seller_id, exc_info=t.exception()
+            )
             if not t.cancelled() and t.exception()
             else None
         )
     )
     state.active_task = task
 
-    await broadcast({"type": "status", "connected": True, "room_id": None})
-    logger.info("Session started: %s", live_session.id)
+    await broadcast({"type": "status", "seller_id": seller_id, "connected": True, "room_id": None})
+    logger.info("Session started for seller %s: %s", seller_id, live_session.id)
 
     return SessionStatusResponse(
         connected=True, session=SessionResponse.model_validate(live_session)
@@ -221,9 +227,10 @@ async def start_session(
 @router.post("/stop")
 async def stop_session(
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ) -> dict[str, str]:
-    state = session_state
+    seller_id = current_seller.id
+    state = get_session_state(seller_id)
 
     if state.active_session_id is None:
         raise HTTPException(status_code=400, detail="No active session")
@@ -235,7 +242,7 @@ async def stop_session(
         try:
             await state.active_listener.stop()
         except Exception:
-            logger.exception("Error stopping listener")
+            logger.exception("Error stopping listener for seller %s", seller_id)
 
     session = await db.get(LiveSession, state.active_session_id)
     if session:
@@ -245,16 +252,17 @@ async def stop_session(
 
     state.reset()
 
-    await broadcast({"type": "status", "connected": False})
+    await broadcast({"type": "status", "seller_id": seller_id, "connected": False})
     return {"message": "Session stopped"}
 
 
 @router.get("/status", response_model=SessionStatusResponse)
 async def get_status(
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ) -> SessionStatusResponse:
-    state = session_state
+    seller_id = current_seller.id
+    state = get_session_state(seller_id)
 
     if state.active_session_id is None:
         return SessionStatusResponse(connected=False, session=None)
@@ -272,11 +280,16 @@ async def get_history(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ) -> list[SessionResponse]:
+    seller_id = current_seller.id
     offset = (page - 1) * limit
     result = await db.execute(
-        select(LiveSession).order_by(LiveSession.started_at.desc()).offset(offset).limit(limit)
+        select(LiveSession)
+        .where(LiveSession.seller_id == seller_id)
+        .order_by(LiveSession.started_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     sessions = result.scalars().all()
     return [SessionResponse.model_validate(s) for s in sessions]
@@ -288,11 +301,15 @@ async def get_session_messages(
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ) -> list[MessageLogResponse]:
     session = await db.get(LiveSession, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Ownership check: seller can only view their own session messages
+    if session.seller_id != current_seller.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this session")
 
     offset = (page - 1) * limit
     result = await db.execute(

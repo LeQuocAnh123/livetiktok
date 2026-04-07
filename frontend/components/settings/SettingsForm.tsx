@@ -112,7 +112,7 @@ export function SettingsForm() {
     <div className="space-y-6 max-w-md">
       <div className="grid gap-2">
         <Label>Tone</Label>
-        <Select value={settings.tone} onValueChange={(v) => update("tone", v)}>
+        <Select value={settings.tone} onValueChange={(v) => v && update("tone", v)}>
           <SelectTrigger>
             <SelectValue placeholder="Chọn tone…" />
           </SelectTrigger>

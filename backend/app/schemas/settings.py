@@ -1,9 +1,11 @@
 """Pydantic schemas for Settings API."""
+
 from pydantic import BaseModel
 
 
 class BotSettingsUpdate(BaseModel):
     """All fields optional — PUT merges into existing settings."""
+
     tone: str | None = None
     blacklist_keywords: list[str] | None = None
     reply_delay_min: int | None = None
@@ -24,8 +26,8 @@ class BotSettingsResponse(BaseModel):
 
 
 class TestReplyRequest(BaseModel):
-    seller_id: str
     comment: str
+    # seller_id removed - comes from JWT
 
 
 class TestReplyResponse(BaseModel):

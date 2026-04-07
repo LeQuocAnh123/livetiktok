@@ -4,27 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-SELLER_ID = "wiring-seller-001"
 
-
-@pytest.fixture
-async def seller(db_session):
-    from app.models.seller import Seller
-    from app.core.crypto import encrypt
-
-    s = Seller(
-        name="Wiring Shop",
-        tiktok_unique_id="@wiringshop",
-        tiktok_session_id_encrypted=encrypt("sess-abc"),
-        tiktok_target_idc_encrypted=encrypt("useast1a"),
-    )
-    s.id = SELLER_ID
-    db_session.add(s)
-    await db_session.commit()
-    return s
-
-
-async def test_start_session_creates_live_session(auth_client, seller):
+async def test_start_session_creates_live_session(auth_client, test_seller):
     """POST /api/v1/sessions/start creates LiveSession with ACTIVE status."""
     with (
         patch("app.api.v1.sessions.TikTokLiveClient") as mock_tiktok_cls,
@@ -43,20 +24,17 @@ async def test_start_session_creates_live_session(auth_client, seller):
         mock_embed_factory.return_value = AsyncMock()
         mock_reply_factory.return_value = AsyncMock()
 
-        resp = await auth_client.post(
-            "/api/v1/sessions/start",
-            json={
-                "seller_id": SELLER_ID,
-            },
-        )
+        # No body needed - seller_id comes from JWT
+        resp = await auth_client.post("/api/v1/sessions/start")
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["connected"] is True
     assert data["session"]["status"] == "active"
+    assert data["session"]["seller_id"] == test_seller.id
 
 
-async def test_start_session_twice_returns_400(auth_client, seller):
+async def test_start_session_twice_returns_400(auth_client, test_seller):
     """Cannot start a second session while one is already active."""
     with (
         patch("app.api.v1.sessions.TikTokLiveClient") as mock_tiktok_cls,
@@ -71,13 +49,13 @@ async def test_start_session_twice_returns_400(auth_client, seller):
         mock_listener = MagicMock()
         mock_listener_cls.return_value = mock_listener
 
-        await auth_client.post("/api/v1/sessions/start", json={"seller_id": SELLER_ID})
-        resp2 = await auth_client.post("/api/v1/sessions/start", json={"seller_id": SELLER_ID})
+        await auth_client.post("/api/v1/sessions/start")
+        resp2 = await auth_client.post("/api/v1/sessions/start")
 
     assert resp2.status_code == 400
 
 
-async def test_stop_session(auth_client, seller):
+async def test_stop_session(auth_client, test_seller):
     """POST /api/v1/sessions/stop ends active session."""
     with (
         patch("app.api.v1.sessions.TikTokLiveClient") as mock_tiktok_cls,
@@ -93,20 +71,20 @@ async def test_stop_session(auth_client, seller):
         mock_listener.stop = AsyncMock()
         mock_listener_cls.return_value = mock_listener
 
-        await auth_client.post("/api/v1/sessions/start", json={"seller_id": SELLER_ID})
+        await auth_client.post("/api/v1/sessions/start")
 
     resp = await auth_client.post("/api/v1/sessions/stop")
     assert resp.status_code == 200
 
 
-async def test_stop_when_no_active_session_returns_400(auth_client):
+async def test_stop_when_no_active_session_returns_400(auth_client, test_seller):
     """POST /stop with no active session returns 400."""
     resp = await auth_client.post("/api/v1/sessions/stop")
     assert resp.status_code == 400
 
 
-async def test_history_returns_list(auth_client, seller):
-    """GET /api/v1/sessions/history returns list of past sessions."""
+async def test_history_returns_list(auth_client, test_seller):
+    """GET /api/v1/sessions/history returns list of past sessions (only for authenticated seller)."""
     resp = await auth_client.get("/api/v1/sessions/history?page=1&limit=20")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)

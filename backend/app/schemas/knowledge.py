@@ -1,4 +1,5 @@
 """Pydantic schemas for Knowledge Base API."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -12,10 +13,10 @@ if TYPE_CHECKING:
 
 
 class KnowledgeChunkCreate(BaseModel):
-    seller_id: str
     content: str
     category: KnowledgeCategory = KnowledgeCategory.FAQ
     metadata: dict[str, Any] = {}
+    # seller_id removed - comes from JWT
 
 
 class KnowledgeChunkUpdate(BaseModel):

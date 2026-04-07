@@ -2,11 +2,11 @@
 
 from datetime import date, datetime, time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_seller
 from app.database import get_db
 from app.models.message import MessageLog
 from app.models.seller import Seller
@@ -18,7 +18,6 @@ router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 
 @router.get("/", response_model=AnalyticsResponse)
 async def get_analytics(
-    seller_id: str,
     start_date: date | None = Query(
         default=None, description="Filter sessions from this date (inclusive)"
     ),
@@ -26,11 +25,9 @@ async def get_analytics(
         default=None, description="Filter sessions until this date (inclusive)"
     ),
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
-    seller = await db.get(Seller, seller_id)
-    if seller is None:
-        raise HTTPException(status_code=404, detail="Seller not found")
+    seller_id = current_seller.id
 
     # Base session filter
     session_filter = LiveSession.seller_id == seller_id

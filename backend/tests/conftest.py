@@ -1,3 +1,5 @@
+import os
+import tempfile
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -9,20 +11,26 @@ from app.database import Base, get_db
 
 _TEST_SELLER_ID = "test-seller-001"
 
-TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-
 
 @pytest.fixture(scope="function")
 async def db_session():
-    engine = create_async_engine(TEST_DB_URL)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with session_factory() as session:
-        yield session
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    # Use temp file instead of in-memory to avoid connection isolation issues
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+
+    try:
+        engine = create_async_engine(
+            f"sqlite+aiosqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            yield session
+        await engine.dispose()
+    finally:
+        os.unlink(db_path)
 
 
 @pytest.fixture
@@ -45,6 +53,7 @@ async def client(db_session):
 async def test_seller(db_session):
     """Create a test seller with known credentials."""
     from app.models.seller import Seller
+    from app.core.crypto import encrypt
 
     seller = Seller(
         id=_TEST_SELLER_ID,
@@ -53,8 +62,8 @@ async def test_seller(db_session):
         password_hash=hash_password("testpass123"),
         is_active=True,
         tiktok_unique_id="@testshop",
-        tiktok_session_id_encrypted="enc_session",
-        tiktok_target_idc_encrypted="enc_idc",
+        tiktok_session_id_encrypted=encrypt("test-session-123"),
+        tiktok_target_idc_encrypted=encrypt("useast1a"),
     )
     db_session.add(seller)
     await db_session.commit()

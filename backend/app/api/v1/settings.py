@@ -2,10 +2,10 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_seller
 from app.core.ai.factory import get_embed_provider, get_reply_provider
 from app.core.rag import retriever
 from app.core.rag.filter import detect_intent
@@ -23,53 +23,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 
-async def _get_seller(seller_id: str, db: AsyncSession) -> Seller:
-    seller = await db.get(Seller, seller_id)
-    if seller is None:
-        raise HTTPException(status_code=404, detail="Seller not found")
-    return seller
-
-
 @router.get("/", response_model=BotSettingsResponse)
 async def get_settings(
-    seller_id: str,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
-    seller = await _get_seller(seller_id, db)
-    return BotSettingsResponse(**seller.bot_settings)
+    # Refresh from DB to get latest settings
+    await db.refresh(current_seller)
+    return BotSettingsResponse(**current_seller.bot_settings)
 
 
 @router.put("/", response_model=BotSettingsResponse)
 async def update_settings(
-    seller_id: str,
     body: BotSettingsUpdate,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
-    seller = await _get_seller(seller_id, db)
-
     # Merge: only update fields that were explicitly provided
-    updated = dict(seller.bot_settings)
+    updated = dict(current_seller.bot_settings)
     patch = body.model_dump(exclude_none=True)
     updated.update(patch)
-    seller.bot_settings = updated
+    current_seller.bot_settings = updated
 
     await db.commit()
-    await db.refresh(seller)
-    return BotSettingsResponse(**seller.bot_settings)
+    await db.refresh(current_seller)
+    return BotSettingsResponse(**current_seller.bot_settings)
 
 
 @router.post("/test-reply", response_model=TestReplyResponse)
 async def test_reply(
     body: TestReplyRequest,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
     """Run the full RAG pipeline for a comment and return the preview reply.
     Does NOT send anything to TikTok."""
-    seller = await _get_seller(body.seller_id, db)
-    settings = seller.bot_settings
+    settings = current_seller.bot_settings
+    seller_id = current_seller.id
 
     # Blacklist check
     blacklist = settings.get("blacklist_keywords", [])
@@ -84,7 +74,7 @@ async def test_reply(
     embed_provider = get_embed_provider()
     embedding = await embed_provider.embed(body.comment)
 
-    chunks = await retriever.query(body.seller_id, embedding, n_results=3)
+    chunks = await retriever.query(seller_id, embedding, n_results=3)
     context = "\n\n".join(c["content"] for c in chunks)
     system = SYSTEM_PROMPT_TEMPLATE.format(tone=settings.get("tone", "friendly"))
 

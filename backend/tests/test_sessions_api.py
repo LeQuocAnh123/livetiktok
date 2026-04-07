@@ -1,10 +1,18 @@
+"""Integration tests for sessions API."""
+
+import pytest
+import uuid
+
+from app.models.session import LiveSession, SessionStatus
+
+
 async def test_health_endpoint(client):
     response = await client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
 
-async def test_get_status_no_session(auth_client):
+async def test_get_status_no_session(auth_client, test_seller):
     response = await auth_client.get("/api/v1/sessions/status")
     assert response.status_code == 200
     data = response.json()
@@ -12,23 +20,15 @@ async def test_get_status_no_session(auth_client):
     assert data["session"] is None
 
 
-import pytest
-
-
-@pytest.mark.asyncio
-async def test_session_messages_404_for_unknown_session(auth_client):
+async def test_session_messages_404_for_unknown_session(auth_client, test_seller):
     resp = await auth_client.get("/api/v1/sessions/nonexistent-id/messages")
     assert resp.status_code == 404
 
 
-@pytest.mark.asyncio
-async def test_session_messages_empty_for_new_session(auth_client, db_session, seller_id: str):
-    from app.models.session import LiveSession, SessionStatus
-    import uuid
-
+async def test_session_messages_empty_for_new_session(auth_client, test_seller, db_session):
     session = LiveSession(
         id=str(uuid.uuid4()),
-        seller_id=seller_id,
+        seller_id=test_seller.id,
         status=SessionStatus.ENDED,
     )
     db_session.add(session)
@@ -37,3 +37,23 @@ async def test_session_messages_empty_for_new_session(auth_client, db_session, s
     resp = await auth_client.get(f"/api/v1/sessions/{session.id}/messages")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+async def test_session_messages_forbidden_for_other_seller(auth_client, test_seller, db_session):
+    """Cannot view messages for sessions owned by another seller."""
+    session = LiveSession(
+        id=str(uuid.uuid4()),
+        seller_id="other-seller-id",
+        status=SessionStatus.ENDED,
+    )
+    db_session.add(session)
+    await db_session.commit()
+
+    resp = await auth_client.get(f"/api/v1/sessions/{session.id}/messages")
+    assert resp.status_code == 403
+
+
+async def test_unauthenticated_returns_401(client):
+    """Unauthenticated requests return 401."""
+    resp = await client.get("/api/v1/sessions/status")
+    assert resp.status_code == 401

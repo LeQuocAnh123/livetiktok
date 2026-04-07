@@ -4,29 +4,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-SELLER_ID = "settings-seller-001"
 
-
-@pytest.fixture
-async def seller(db_session):
-    from app.models.seller import Seller
-    from app.core.crypto import encrypt
-
-    s = Seller(
-        name="Test Shop",
-        tiktok_unique_id="@testshop",
-        tiktok_session_id_encrypted=encrypt("sess123"),
-        tiktok_target_idc_encrypted=encrypt("useast1a"),
-    )
-    s.id = SELLER_ID
-    db_session.add(s)
-    await db_session.commit()
-    return s
-
-
-async def test_get_settings(auth_client, seller):
-    """GET /api/v1/settings/?seller_id=... returns current bot settings."""
-    resp = await auth_client.get(f"/api/v1/settings/?seller_id={SELLER_ID}")
+async def test_get_settings(auth_client, test_seller):
+    """GET /api/v1/settings/ returns current bot settings for authenticated seller."""
+    resp = await auth_client.get("/api/v1/settings/")
     assert resp.status_code == 200
     data = resp.json()
     assert data["tone"] == "friendly"
@@ -34,10 +15,10 @@ async def test_get_settings(auth_client, seller):
     assert "auto_reply_enabled" in data
 
 
-async def test_update_settings(auth_client, seller):
-    """PUT /api/v1/settings/ updates bot_settings JSON."""
+async def test_update_settings(auth_client, test_seller):
+    """PUT /api/v1/settings/ updates bot_settings JSON for authenticated seller."""
     resp = await auth_client.put(
-        f"/api/v1/settings/?seller_id={SELLER_ID}",
+        "/api/v1/settings/",
         json={
             "tone": "professional",
             "user_cooldown_seconds": 30,
@@ -51,11 +32,11 @@ async def test_update_settings(auth_client, seller):
     assert data["auto_reply_enabled"] is False
 
 
-async def test_update_settings_merges_not_replaces(auth_client, seller):
+async def test_update_settings_merges_not_replaces(auth_client, test_seller):
     """PUT only updates provided fields, preserves others."""
     # Set initial
     await auth_client.put(
-        f"/api/v1/settings/?seller_id={SELLER_ID}",
+        "/api/v1/settings/",
         json={
             "tone": "friendly",
             "reply_delay_min": 5,
@@ -63,7 +44,7 @@ async def test_update_settings_merges_not_replaces(auth_client, seller):
     )
     # Update only tone
     resp = await auth_client.put(
-        f"/api/v1/settings/?seller_id={SELLER_ID}",
+        "/api/v1/settings/",
         json={
             "tone": "casual",
         },
@@ -73,7 +54,7 @@ async def test_update_settings_merges_not_replaces(auth_client, seller):
     assert data["reply_delay_min"] == 5  # preserved
 
 
-async def test_test_reply(auth_client, seller):
+async def test_test_reply(auth_client, test_seller):
     """POST /api/v1/settings/test-reply returns a preview reply without sending to TikTok."""
     with (
         patch("app.api.v1.settings.get_embed_provider") as mock_embed_factory,
@@ -95,7 +76,6 @@ async def test_test_reply(auth_client, seller):
         resp = await auth_client.post(
             "/api/v1/settings/test-reply",
             json={
-                "seller_id": SELLER_ID,
                 "comment": "Giá bao nhiêu?",
             },
         )
@@ -107,7 +87,7 @@ async def test_test_reply(auth_client, seller):
     assert "chunks_used" in data
 
 
-async def test_get_settings_not_found(auth_client):
-    """GET settings for unknown seller returns 404."""
-    resp = await auth_client.get("/api/v1/settings/?seller_id=unknown")
-    assert resp.status_code == 404
+async def test_unauthenticated_returns_401(client):
+    """Unauthenticated requests return 401."""
+    resp = await client.get("/api/v1/settings/")
+    assert resp.status_code == 401

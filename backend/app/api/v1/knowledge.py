@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, U
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_seller
 from app.core.ai.factory import get_embed_provider
 from app.core.rag import retriever
 from app.database import get_db, get_session_factory
@@ -54,23 +54,15 @@ async def embed_and_store(chunk_id: str, seller_id: str) -> None:
             logger.exception("Failed to embed chunk %s", chunk_id)
 
 
-async def _require_seller(seller_id: str, db: AsyncSession) -> None:
-    """Raise 404 if seller does not exist."""
-    seller = await db.get(Seller, seller_id)
-    if seller is None:
-        raise HTTPException(status_code=404, detail="Seller not found")
-
-
 @router.post("/", response_model=KnowledgeChunkResponse, status_code=201)
 async def create_chunk(
     body: KnowledgeChunkCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
-    await _require_seller(body.seller_id, db)
     chunk = KnowledgeChunk(
-        seller_id=body.seller_id,
+        seller_id=current_seller.id,
         content=body.content,
         category=body.category,
         metadata_=body.metadata,
@@ -79,18 +71,18 @@ async def create_chunk(
     db.add(chunk)
     await db.commit()
     await db.refresh(chunk)
-    background_tasks.add_task(embed_and_store, chunk.id, body.seller_id)
+    background_tasks.add_task(embed_and_store, chunk.id, current_seller.id)
     return KnowledgeChunkResponse.from_orm_model(chunk)
 
 
 @router.get("/", response_model=KnowledgeListResponse)
 async def list_chunks(
-    seller_id: str,
     page: Annotated[int, Query(ge=1)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
+    seller_id = current_seller.id
     offset = (page - 1) * limit
     count_result = await db.execute(
         select(func.count(KnowledgeChunk.id)).where(KnowledgeChunk.seller_id == seller_id)
@@ -119,11 +111,15 @@ async def update_chunk(
     body: KnowledgeChunkUpdate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
     chunk = await db.get(KnowledgeChunk, chunk_id)
     if chunk is None:
         raise HTTPException(status_code=404, detail="Chunk not found")
+
+    # Ownership check: seller can only update their own chunks
+    if chunk.seller_id != current_seller.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this chunk")
 
     if body.content is not None:
         chunk.content = body.content
@@ -147,11 +143,15 @@ async def update_chunk(
 async def delete_chunk_endpoint(
     chunk_id: str,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
     chunk = await db.get(KnowledgeChunk, chunk_id)
     if chunk is None:
         raise HTTPException(status_code=404, detail="Chunk not found")
+
+    # Ownership check: seller can only delete their own chunks
+    if chunk.seller_id != current_seller.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this chunk")
 
     await retriever.delete_chunk(chunk.seller_id, chunk_id)
     await db.delete(chunk)
@@ -197,7 +197,7 @@ def _validate_rows(rows: list[dict]) -> tuple[list[PreviewRow], list[str]]:
 @router.post("/preview", response_model=CsvPreviewResponse)
 async def preview_knowledge(
     file: UploadFile,
-    _: str = Depends(get_current_user),
+    _: Seller = Depends(get_current_seller),
 ):
     """Parse CSV and return preview without saving anything."""
     filename = file.filename or ""
@@ -228,13 +228,13 @@ async def preview_knowledge(
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_knowledge(
-    seller_id: str,
     file: UploadFile,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user),
+    current_seller: Seller = Depends(get_current_seller),
 ):
     """Bulk import from CSV. Columns: content (required), category (optional), + any metadata cols."""
+    seller_id = current_seller.id
     filename = file.filename or ""
     if not filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
@@ -250,8 +250,6 @@ async def upload_knowledge(
 
     if not rows or "content" not in rows[0].keys():
         raise HTTPException(status_code=400, detail="CSV must have a 'content' column")
-
-    await _require_seller(seller_id, db)
 
     created = 0
     skipped = 0

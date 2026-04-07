@@ -1,7 +1,6 @@
 // lib/api.ts — typed REST client for the TikTok Live AI Bot backend
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const SELLER_ID = process.env.NEXT_PUBLIC_SELLER_ID ?? "";
 
 // ── Types (mirror backend Pydantic schemas) ──────────────────────────────────
 
@@ -108,6 +107,14 @@ export interface MessageLog {
   created_at: string;
 }
 
+// Auth - updated for multi-tenant
+export interface AuthSeller {
+  id: string;
+  username: string;
+  name: string;
+  tiktok_unique_id: string;
+}
+
 // ── Error type ───────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
@@ -152,10 +159,12 @@ async function request<T>(
   return res.json();
 }
 
-function qs(params: Record<string, string | number>): string {
-  const p = new URLSearchParams(
-    Object.entries(params).map(([k, v]) => [k, String(v)]),
+function qs(params: Record<string, string | number | undefined>): string {
+  const filtered = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== "",
   );
+  if (filtered.length === 0) return "";
+  const p = new URLSearchParams(filtered.map(([k, v]) => [k, String(v)]));
   return `?${p.toString()}`;
 }
 
@@ -165,7 +174,7 @@ export const api = {
   knowledge: {
     list(params: { page?: number; limit?: number } = {}): Promise<KnowledgeList> {
       const { page = 1, limit = 20 } = params;
-      return request(`/api/v1/knowledge/${qs({ seller_id: SELLER_ID, page, limit })}`, {
+      return request(`/api/v1/knowledge/${qs({ page, limit })}`, {
         method: "GET",
       });
     },
@@ -177,7 +186,7 @@ export const api = {
     }): Promise<KnowledgeChunk> {
       return request("/api/v1/knowledge/", {
         method: "POST",
-        body: JSON.stringify({ seller_id: SELLER_ID, ...body }),
+        body: JSON.stringify(body),
       });
     },
 
@@ -208,13 +217,10 @@ export const api = {
     upload(file: File): Promise<UploadResult> {
       const form = new FormData();
       form.append("file", file);
-      return request(
-        `/api/v1/knowledge/upload${qs({ seller_id: SELLER_ID })}`,
-        {
-          method: "POST",
-          body: form,
-        },
-      );
+      return request("/api/v1/knowledge/upload", {
+        method: "POST",
+        body: form,
+      });
     },
   },
 
@@ -222,7 +228,6 @@ export const api = {
     start(): Promise<SessionState> {
       return request("/api/v1/sessions/start", {
         method: "POST",
-        body: JSON.stringify({ seller_id: SELLER_ID }),
       });
     },
 
@@ -253,13 +258,11 @@ export const api = {
 
   settings: {
     get(): Promise<BotSettings> {
-      return request(`/api/v1/settings/${qs({ seller_id: SELLER_ID })}`, {
-        method: "GET",
-      });
+      return request("/api/v1/settings/", { method: "GET" });
     },
 
     update(body: BotSettingsUpdate): Promise<BotSettings> {
-      return request(`/api/v1/settings/${qs({ seller_id: SELLER_ID })}`, {
+      return request("/api/v1/settings/", {
         method: "PUT",
         body: JSON.stringify(body),
       });
@@ -268,24 +271,21 @@ export const api = {
     testReply(comment: string): Promise<TestReplyResult> {
       return request("/api/v1/settings/test-reply", {
         method: "POST",
-        body: JSON.stringify({ seller_id: SELLER_ID, comment }),
+        body: JSON.stringify({ comment }),
       });
     },
   },
 
   analytics: {
     get(params: { start_date?: string; end_date?: string } = {}): Promise<AnalyticsData> {
-      const queryParams: Record<string, string | number> = { seller_id: SELLER_ID };
-      if (params.start_date) queryParams.start_date = params.start_date;
-      if (params.end_date) queryParams.end_date = params.end_date;
-      return request(`/api/v1/analytics/${qs(queryParams)}`, {
+      return request(`/api/v1/analytics/${qs(params)}`, {
         method: "GET",
       });
     },
   },
 
   auth: {
-    login(username: string, password: string): Promise<{ username: string }> {
+    login(username: string, password: string): Promise<AuthSeller> {
       return request("/api/v1/auth/login", {
         method: "POST",
         body: JSON.stringify({ username, password }),
@@ -296,7 +296,7 @@ export const api = {
       return request("/api/v1/auth/logout", { method: "POST" });
     },
 
-    me(): Promise<{ username: string }> {
+    me(): Promise<AuthSeller> {
       return request("/api/v1/auth/me", { method: "GET" });
     },
   },
