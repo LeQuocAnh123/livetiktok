@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # WebSocket monitor authentication — empty string disables auth check (dev only)
     ws_monitor_token: str = ""
 
+    # Dashboard auth
+    admin_username: str = "admin"
+    admin_password: str = ""  # Required in production
+    jwt_expire_hours: int = 24
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
