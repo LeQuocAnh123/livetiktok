@@ -22,6 +22,10 @@ dependencies = [
     "openai>=1.0.0",
     "anthropic>=0.40.0",
     "openpyxl>=3.1.0",
+    "groq>=0.9.0",
+    "google-genai>=1.0.0",
+    "TikTokLive>=6.0.0",
+    "PyJWT>=2.8.0",
 ]
 
 [project.optional-dependencies]
