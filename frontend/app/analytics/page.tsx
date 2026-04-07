@@ -5,6 +5,7 @@ import { StatsCards } from "@/components/analytics/StatsCards";
 import { IntentBreakdown } from "@/components/analytics/IntentBreakdown";
 import { UnansweredSummary } from "@/components/analytics/UnansweredSummary";
 import { DateRangeFilter } from "@/components/analytics/DateRangeFilter";
+import { GiftStatsSection } from "@/components/analytics/GiftStats";
 import { api, type AnalyticsData } from "@/lib/api";
 
 export default function AnalyticsPage() {
@@ -82,6 +83,12 @@ export default function AnalyticsPage() {
             <IntentBreakdown breakdown={data.intent_breakdown} />
             <UnansweredSummary count={data.unanswered_count} />
           </div>
+          {data.gift_stats && (
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Gift & Revenue</h3>
+              <GiftStatsSection stats={data.gift_stats} />
+            </div>
+          )}
         </div>
       )}
     </div>
