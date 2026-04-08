@@ -10,6 +10,12 @@ export type WSMessage =
     }
   | { type: "reply"; message_id: string; content: string; intent: string; chunks_used: string[] }
   | {
+      type: "reply_failed";
+      message_id: string;
+      content: string;
+      error: string;
+    }
+  | {
       type: "gift";
       gift_log_id: string;
       user: string;

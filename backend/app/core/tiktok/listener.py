@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Callable
 
 from TikTokLive.client.client import TikTokLiveClient
-from TikTokLive.events.custom_events import DisconnectEvent, LiveEndEvent
+from TikTokLive.events.custom_events import ConnectEvent, DisconnectEvent, LiveEndEvent
 from TikTokLive.events.proto_events import CommentEvent, GiftEvent
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,14 @@ class LiveListener:
         self._register_events()
 
     def _register_events(self) -> None:
+        @self._client.on(ConnectEvent)
+        async def on_connect(event: ConnectEvent):
+            logger.info(
+                "Connected to TikTok Live room (unique_id=%s, room_id=%s)",
+                self._client.unique_id,
+                self._client.room_id,
+            )
+
         @self._client.on(CommentEvent)
         async def on_comment(event: CommentEvent):
             await self._handle_comment_event(event)
@@ -57,7 +65,7 @@ class LiveListener:
         # Use user_info (not deprecated .user property)
         user = event.user_info.unique_id if event.user_info else "unknown"
         text = event.comment or ""
-        logger.debug("Comment from %s: %s", user, text[:80])
+        logger.info("Comment from %s: %s", user, text[:80])
         for handler in self._comment_handlers:
             try:
                 result = handler(user, text)
@@ -120,7 +128,14 @@ class LiveListener:
 
     async def start(self) -> None:
         """Non-blocking: start connection in background."""
-        await self._client.start()
+        logger.info("Starting TikTok listener for unique_id=%s ...", self._client.unique_id)
+        try:
+            await self._client.start()
+        except Exception:
+            logger.exception(
+                "TikTok listener failed to start for unique_id=%s", self._client.unique_id
+            )
+            raise
 
     async def stop(self) -> None:
         await self._client.disconnect()

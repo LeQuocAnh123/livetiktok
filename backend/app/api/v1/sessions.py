@@ -111,8 +111,18 @@ async def _handle_comment(seller_id: str, user: str, text: str) -> None:
         if state.active_replier is not None:
             await state.active_replier.send(result.reply)
         state.reply_count += 1
-    except Exception:
-        logger.exception("Failed to send TikTok reply")
+    except Exception as exc:
+        logger.exception("Failed to send TikTok reply for message %s", message_id)
+        # Broadcast failure so dashboard shows the error
+        await broadcast(
+            {
+                "type": "reply_failed",
+                "seller_id": seller_id,
+                "message_id": message_id,
+                "content": result.reply,
+                "error": str(exc),
+            }
+        )
         return
 
     # Persist reply and chunks to DB
@@ -216,8 +226,15 @@ async def _handle_gift(
     try:
         if state.active_replier is not None:
             await state.active_replier.send(result.reply)
-    except Exception:
-        logger.exception("Failed to send gift thank-you to TikTok")
+    except Exception as exc:
+        logger.exception("Failed to send gift thank-you to TikTok for %s", user)
+        await broadcast(
+            {
+                "type": "error",
+                "seller_id": seller_id,
+                "message": f"Gift reply failed: {exc}",
+            }
+        )
 
     # 5. Update GiftLog with thank_reply
     async with get_session_factory()() as db:
@@ -348,15 +365,37 @@ async def start_session(
 
     # Start listener in background (non-blocking)
     task = asyncio.create_task(listener.start(), name=f"tiktok-listener-{seller_id}")
-    task.add_done_callback(
-        lambda t: (
-            logger.exception(
-                "Listener task crashed for seller %s", seller_id, exc_info=t.exception()
+
+    async def _on_listener_done(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            logger.error("Listener task crashed for seller %s: %s", seller_id, error_msg)
+            # Broadcast error to dashboard so user can see it
+            await broadcast(
+                {
+                    "type": "error",
+                    "seller_id": seller_id,
+                    "message": f"TikTok connection failed: {error_msg}",
+                }
             )
-            if not t.cancelled() and t.exception()
-            else None
-        )
-    )
+            await broadcast({"type": "status", "seller_id": seller_id, "connected": False})
+            # Clean up session state
+            if state.active_session_id:
+                async with get_session_factory()() as err_db:
+                    session = await err_db.get(LiveSession, state.active_session_id)
+                    if session:
+                        session.status = SessionStatus.ENDED
+                        session.ended_at = datetime.now(timezone.utc)
+                        await err_db.commit()
+            state.reset()
+
+    def _task_done_callback(t: asyncio.Task) -> None:
+        asyncio.create_task(_on_listener_done(t))
+
+    task.add_done_callback(_task_done_callback)
     state.active_task = task
 
     await broadcast({"type": "status", "seller_id": seller_id, "connected": True, "room_id": None})

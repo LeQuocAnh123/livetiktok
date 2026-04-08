@@ -42,10 +42,20 @@ export default function MonitorPage() {
       addOrUpdate((items) =>
         items.map((item) =>
           item.message_id === msg.message_id
-            ? { ...item, reply: msg.content, intent: msg.intent }
+            ? { ...item, reply: msg.content, intent: msg.intent, replyFailed: false }
             : item,
         ),
       );
+    },
+    reply_failed: (msg) => {
+      addOrUpdate((items) =>
+        items.map((item) =>
+          item.message_id === msg.message_id
+            ? { ...item, reply: msg.content, replyFailed: true, replyError: msg.error }
+            : item,
+        ),
+      );
+      toast.error(`Reply failed: ${msg.error.slice(0, 120)}`);
     },
     gift: (msg) => {
       setGiftItems((items) => {

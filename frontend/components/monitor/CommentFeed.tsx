@@ -6,6 +6,8 @@ import type { WSMessage } from "@/lib/ws";
 export type FeedItem = Extract<WSMessage, { type: "comment" }> & {
   reply?: string;
   intent?: string;
+  replyFailed?: boolean;
+  replyError?: string;
 };
 
 interface Props {
@@ -53,8 +55,16 @@ export function CommentFeed({ items, selectedId, onSelect }: Props) {
           </div>
           <p className="text-slate-700">{item.content}</p>
           {item.reply && (
-            <p className="mt-2 pl-3 border-l-2 border-green-400 text-slate-600 text-xs italic">
-              Bot: {item.reply}
+            <p
+              className={`mt-2 pl-3 border-l-2 text-xs italic ${
+                item.replyFailed
+                  ? "border-red-400 text-red-600"
+                  : "border-green-400 text-slate-600"
+              }`}
+              title={item.replyFailed ? item.replyError : undefined}
+            >
+              {item.replyFailed ? "Failed: " : "Bot: "}
+              {item.reply}
             </p>
           )}
         </div>

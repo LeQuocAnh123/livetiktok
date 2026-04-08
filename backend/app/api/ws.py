@@ -23,11 +23,15 @@ async def broadcast(message: dict[str, Any]) -> None:
     If no seller_id, broadcasts to all (legacy fallback).
     """
     seller_id = message.get("seller_id")
+    msg_type = message.get("type", "unknown")
 
     if seller_id:
         # Route to specific seller's connections
+        clients = _connections.get(seller_id, [])
+        if not clients:
+            logger.debug("Broadcast %s for seller %s: no connected clients", msg_type, seller_id)
         dead = []
-        for ws in _connections.get(seller_id, []):
+        for ws in clients:
             try:
                 await ws.send_text(json.dumps(message))
             except Exception:
@@ -35,6 +39,8 @@ async def broadcast(message: dict[str, Any]) -> None:
         for ws in dead:
             if ws in _connections[seller_id]:
                 _connections[seller_id].remove(ws)
+        if dead:
+            logger.info("Removed %d dead WS connections for seller %s", len(dead), seller_id)
     else:
         # Fallback: broadcast to all (should not happen in multi-tenant)
         logger.warning("Broadcast without seller_id - sending to all")
@@ -59,8 +65,14 @@ async def websocket_monitor(websocket: WebSocket):
 
     from app.core.security import decode_access_token
 
-    seller_id = decode_access_token(token)
+    payload = decode_access_token(token)
+    if not payload:
+        await websocket.close(code=1008)
+        return
+
+    seller_id = payload.get("sub")
     if not seller_id:
+        logger.warning("JWT token missing 'sub' claim")
         await websocket.close(code=1008)
         return
 
@@ -132,8 +144,16 @@ async def _handle_manual_reply(seller_id: str, msg: dict) -> None:
     try:
         await replier.send(content)
     except Exception as exc:
-        logger.exception("manual_reply send failed")
-        await broadcast({"type": "error", "seller_id": seller_id, "message": str(exc)})
+        logger.exception("manual_reply send failed for message %s", message_id)
+        await broadcast(
+            {
+                "type": "reply_failed",
+                "seller_id": seller_id,
+                "message_id": message_id,
+                "content": content,
+                "error": str(exc),
+            }
+        )
         return
 
     async with get_session_factory()() as db:
